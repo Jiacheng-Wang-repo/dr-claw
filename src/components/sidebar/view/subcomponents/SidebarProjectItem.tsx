@@ -316,12 +316,12 @@ export default function SidebarProjectItem({
                   <div className="text-[14px] font-semibold truncate text-foreground" title={project.displayName}>
                     {project.displayName}
                   </div>
-                  <div className="text-[11px] text-muted-foreground">
+                  <div className="text-[11px] text-muted-foreground truncate">
                     {sessionCountDisplay}
                     {project.fullPath !== project.displayName && (
                       <span className="ml-1 opacity-60" title={project.fullPath}>
                         {' - '}
-                        {project.fullPath.length > 25 ? `...${project.fullPath.slice(-22)}` : project.fullPath}
+                        {project.fullPath}
                       </span>
                     )}
                   </div>

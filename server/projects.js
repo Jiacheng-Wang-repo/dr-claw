@@ -1093,7 +1093,7 @@ async function getSessionMessages(projectName, sessionId, limit = null, offset =
   }
 }
 
-// Rename a project's display name
+// Rename a project's display name and optionally its workspace folder
 async function renameProject(projectName, newDisplayName) {
   const config = await loadProjectConfig();
 
@@ -1107,11 +1107,42 @@ async function renameProject(projectName, newDisplayName) {
       }
     }
   } else {
+    const trimmedName = newDisplayName.trim();
+
     // Merge displayName, preserving manuallyAdded, originalPath, etc.
     config[projectName] = {
       ...config[projectName],
-      displayName: newDisplayName.trim()
+      displayName: trimmedName
     };
+
+    // Also rename the workspace folder on disk if it exists
+    const currentPath = config[projectName]?.originalPath || await extractProjectDirectory(projectName);
+    if (currentPath) {
+      const parentDir = path.dirname(currentPath);
+      // Sanitize the new folder name: replace path-unsafe chars with hyphens
+      const safeName = trimmedName.replace(/[/\\:*?"<>|]/g, '-');
+      const newPath = path.join(parentDir, safeName);
+
+      if (newPath !== currentPath) {
+        try {
+          // Check the old directory exists and new path doesn't
+          await fs.access(currentPath);
+          try {
+            await fs.access(newPath);
+            // newPath already exists, skip rename to avoid data loss
+            console.warn(`[WARN] Cannot rename folder: target path already exists: ${newPath}`);
+          } catch {
+            // newPath doesn't exist — safe to rename
+            await fs.rename(currentPath, newPath);
+            config[projectName].originalPath = newPath;
+            // Clear cache so next lookup picks up the new path
+            projectDirectoryCache.delete(projectName);
+          }
+        } catch {
+          // Current path doesn't exist on disk, skip rename
+        }
+      }
+    }
   }
 
   await saveProjectConfig(config);
