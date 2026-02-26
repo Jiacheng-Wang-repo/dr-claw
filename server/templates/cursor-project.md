@@ -47,8 +47,6 @@ Output directories: `Experiment/code_references/`, `Experiment/datasets/`, `Expe
 **Publication** — Write the paper, prepare figures/tables, finalize submission artifacts.
 Output directories: `Publication/paper/`, `Publication/homepage/`, `Publication/slide/`
 
-The `idea_maturity` field in `instance.json` may be used by individual skills (like `inno-research-orchestrator`) to adjust their behavior at runtime, but the generated task list always covers all three stages. Do not skip stages based on `idea_maturity` — let each skill decide how to adapt.
-
 ## How to Use Skills
 
 Research skills are available in `.cursor/skills/`. Each skill directory contains a `SKILL.md` with step-by-step procedures.
@@ -57,12 +55,12 @@ When the user sends a task via "Use in Chat", the task prompt already includes s
 1. Read `.cursor/skills/<skill-name>/SKILL.md` for the full procedure of each suggested skill.
 2. Follow the steps exactly as written in the `SKILL.md`.
 
-If no suggested skills appear in the prompt, or the user makes a freeform request outside the task list, list the `.cursor/skills/` directory to discover available skills and pick the best match. When unsure, start with `inno-research-orchestrator` — it is the main entry point that routes to other skills.
+If no suggested skills appear in the prompt, or the user makes a freeform request outside the task list, list the `.cursor/skills/` directory to discover available skills and pick the best match.
 
 ## Key Files
 
-- `instance.json` — Project config: `instance_id`, `idea_maturity`, `created_at`, `category`, and absolute paths for all pipeline directories (`Ideation.*`, `Experiment.*`, `Publication.*`). All paths are absolute — use them directly for file I/O.
-- `.pipeline/docs/research_brief.json` — The research brief and single source of truth for the project. Top-level structure: `schemaVersion`, `templateId`, `meta` (`title`, `lead_author`, `target_venue`, `date`), `sections` (per-stage content: `ideation`, `experiment`, `publication` — each with domain-specific fields like `research_goal`, `hypothesis_or_validation_goal`, `paper_outline`), and `pipeline` (per-stage `required_elements`, `quality_gate`, `task_blueprints`, `recommended_skills`). Update it as work progresses.
+- `instance.json` — Project path mapping. It stores absolute directory paths for each pipeline area (`Ideation.*`, `Experiment.*`, `Publication.*`) and related project metadata. Use these paths as the canonical locations for file I/O.
+- `.pipeline/docs/research_brief.json` — Research process control document and single source of truth. It defines stage goals, required elements, quality gates, task blueprints, and recommended skills, and should be updated as the work evolves.
 - `.pipeline/tasks/tasks.json` — The task list generated from the research brief. Each task has: `id`, `title`, `description`, `status` (pending, in-progress, done, review, deferred, cancelled), `stage`, `priority`, `dependencies`, `taskType`, `inputsNeeded`, `suggestedSkills`, and `nextActionPrompt`. Read this to understand what needs to be done.
 - `.pipeline/config.json` — Pipeline configuration metadata.
 
