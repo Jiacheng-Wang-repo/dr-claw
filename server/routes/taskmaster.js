@@ -475,6 +475,45 @@ function generateTaskId(tasks) {
     return Math.max(...numericIds) + 1;
 }
 
+/**
+ * Reassign all task IDs sequentially (1, 2, 3, ...) following global stage order.
+ * Preserves array order within each stage group and remaps dependency references.
+ */
+function reindexTasks(tasks) {
+    const staged = {};
+    STAGE_ORDER.forEach((s) => { staged[s] = []; });
+    const unassigned = [];
+
+    for (const task of tasks) {
+        const s = normalizeStageName(task.stage);
+        if (s && staged[s]) {
+            staged[s].push(task);
+        } else {
+            unassigned.push(task);
+        }
+    }
+
+    const ordered = [];
+    STAGE_ORDER.forEach((s) => { ordered.push(...staged[s]); });
+    ordered.push(...unassigned);
+
+    const idMap = {};
+    ordered.forEach((task, idx) => {
+        idMap[String(task.id)] = idx + 1;
+    });
+
+    return ordered.map((task, idx) => ({
+        ...task,
+        id: idx + 1,
+        dependencies: Array.isArray(task.dependencies)
+            ? task.dependencies
+                .map((dep) => idMap[String(dep)])
+                .filter(Boolean)
+            : [],
+        updatedAt: new Date().toISOString(),
+    }));
+}
+
 function splitPromptToTitle(prompt) {
     const cleaned = String(prompt || '').replace(/\s+/g, ' ').trim();
     if (!cleaned) {
@@ -1789,7 +1828,7 @@ router.post('/init/:projectName', async (req, res) => {
 router.post('/add-task/:projectName', async (req, res) => {
     try {
         const { projectName } = req.params;
-        const { prompt, title, description, priority = 'medium', dependencies } = req.body;
+        const { prompt, title, description, priority = 'high', dependencies, stage, insertAfterId } = req.body;
 
         if (!prompt && (!title || !description)) {
             return res.status(400).json({
@@ -1827,12 +1866,44 @@ router.post('/add-task/:projectName', async (req, res) => {
             priority,
             status: 'pending',
             dependencies: dependencyList,
+            ...(stage ? { stage } : {}),
             createdAt: now,
             updatedAt: now,
         });
 
-        const nextTasks = [...tasks, newTask];
-        await writeTasksFile(paths.tasksFile, nextTasks, currentTag);
+        // Determine insertion position
+        let nextTasks;
+        if (insertAfterId !== undefined) {
+            if (insertAfterId === null || insertAfterId === 0) {
+                // Insert at beginning of the target stage
+                const targetStage = normalizeStageName(stage);
+                const firstInStageIdx = tasks.findIndex(
+                    (t) => normalizeStageName(t.stage) === targetStage
+                );
+                if (firstInStageIdx === -1) {
+                    nextTasks = [...tasks, newTask];
+                } else {
+                    nextTasks = [...tasks.slice(0, firstInStageIdx), newTask, ...tasks.slice(firstInStageIdx)];
+                }
+            } else {
+                // Insert after the specified task
+                const afterIdx = tasks.findIndex((t) => String(t.id) === String(insertAfterId));
+                if (afterIdx === -1) {
+                    nextTasks = [...tasks, newTask];
+                } else {
+                    nextTasks = [...tasks.slice(0, afterIdx + 1), newTask, ...tasks.slice(afterIdx + 1)];
+                }
+            }
+        } else {
+            nextTasks = [...tasks, newTask];
+        }
+
+        // Reindex all tasks so IDs are sequential
+        const reindexed = reindexTasks(nextTasks);
+        await writeTasksFile(paths.tasksFile, reindexed, currentTag);
+
+        // Find the inserted task by its createdAt timestamp
+        const insertedTask = reindexed.find((t) => t.createdAt === now && t.title === newTask.title);
 
         if (req.app.locals.wss) {
             broadcastTaskMasterTasksUpdate(req.app.locals.wss, projectName);
@@ -1842,7 +1913,7 @@ router.post('/add-task/:projectName', async (req, res) => {
             projectName,
             projectPath,
             message: 'Task added successfully',
-            task: newTask,
+            task: insertedTask || newTask,
             timestamp: now,
         });
 
@@ -1850,6 +1921,71 @@ router.post('/add-task/:projectName', async (req, res) => {
         console.error('Add task error:', error);
         res.status(500).json({
             error: 'Failed to add task',
+            message: error.message
+        });
+    }
+});
+
+/**
+ * DELETE /api/taskmaster/delete-task/:projectName/:taskId
+ * Permanently remove a task from the project
+ */
+router.delete('/delete-task/:projectName/:taskId', async (req, res) => {
+    try {
+        const { projectName, taskId } = req.params;
+
+        let projectPath;
+        try {
+            projectPath = await extractProjectDirectory(projectName);
+        } catch (error) {
+            return res.status(404).json({
+                error: 'Project not found',
+                message: `Project "${projectName}" does not exist`
+            });
+        }
+
+        const paths = await ensurePipelineInitialized(projectPath);
+        const { tasks, currentTag } = await readTasksFile(paths.tasksFile);
+
+        const targetId = String(taskId);
+        const taskIndex = tasks.findIndex((t) => String(t.id) === targetId);
+        if (taskIndex === -1) {
+            return res.status(404).json({
+                error: 'Task not found',
+                message: `Task with ID "${taskId}" does not exist`
+            });
+        }
+
+        const deletedTask = tasks[taskIndex];
+        const nextTasks = tasks.filter((_, i) => i !== taskIndex);
+
+        // Remove deleted task ID from dependency arrays, then reindex
+        nextTasks.forEach((t) => {
+            if (Array.isArray(t.dependencies)) {
+                t.dependencies = t.dependencies.filter(
+                    (dep) => String(dep) !== targetId
+                );
+            }
+        });
+
+        const reindexed = reindexTasks(nextTasks);
+        await writeTasksFile(paths.tasksFile, reindexed, currentTag);
+
+        if (req.app.locals.wss) {
+            broadcastTaskMasterTasksUpdate(req.app.locals.wss, projectName);
+        }
+
+        res.json({
+            projectName,
+            projectPath,
+            message: 'Task deleted successfully',
+            deletedTask,
+            timestamp: new Date().toISOString(),
+        });
+    } catch (error) {
+        console.error('Delete task error:', error);
+        res.status(500).json({
+            error: 'Failed to delete task',
             message: error.message
         });
     }

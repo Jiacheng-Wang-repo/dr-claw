@@ -151,10 +151,10 @@ export const api = {
       }),
 
     // Add a new task
-    addTask: (projectName, { prompt, title, description, priority, dependencies }) =>
+    addTask: (projectName, { prompt, title, description, priority, dependencies, stage, insertAfterId }) =>
       authenticatedFetch(`/api/taskmaster/add-task/${projectName}`, {
         method: 'POST',
-        body: JSON.stringify({ prompt, title, description, priority, dependencies }),
+        body: JSON.stringify({ prompt, title, description, priority, dependencies, stage, insertAfterId }),
       }),
 
     // Parse PRD to generate tasks
@@ -180,6 +180,12 @@ export const api = {
       authenticatedFetch(`/api/taskmaster/update-task/${projectName}/${taskId}`, {
         method: 'PUT',
         body: JSON.stringify(updates),
+      }),
+
+    // Delete a task
+    deleteTask: (projectName, taskId) =>
+      authenticatedFetch(`/api/taskmaster/delete-task/${projectName}/${taskId}`, {
+        method: 'DELETE',
       }),
   },
 

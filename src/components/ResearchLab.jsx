@@ -8,8 +8,10 @@ import {
   FlaskConical, RefreshCw, FileText, BookOpen, Settings2, Lightbulb,
   GitBranch, FolderOpen, ChevronDown, ChevronRight, ExternalLink,
   FileCode, Beaker, Brain, Save, AlertCircle,
-  Sparkles, Copy, Check, PenTool, Target, Clock3, ListChecks, MessageSquare
+  Sparkles, Copy, Check, PenTool, Target, Clock3, ListChecks, MessageSquare,
+  Plus, Trash2, AlertTriangle
 } from 'lucide-react';
+import ReactDOM from 'react-dom';
 import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -391,11 +393,19 @@ function TaskPipelineBoard({ tasks, isLoading, onNavigateToChat, projectName, on
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editForm, setEditForm] = useState({ title: '', description: '' });
   const [saving, setSaving] = useState(false);
+  const [addingToStage, setAddingToStage] = useState(null);
+  const [addForm, setAddForm] = useState({ title: '', description: '' });
+  const [addingTask, setAddingTask] = useState(false);
+  const [deleteConfirmTask, setDeleteConfirmTask] = useState(null);
+  const [deletingTask, setDeletingTask] = useState(false);
 
-  // Clear editing state when project changes
+  // Clear all interaction state when project changes
   useEffect(() => {
     setEditingTaskId(null);
     setEditForm({ title: '', description: '' });
+    setAddingToStage(null);
+    setAddForm({ title: '', description: '' });
+    setDeleteConfirmTask(null);
   }, [projectName]);
 
   const handleDoubleClick = useCallback((task) => {
@@ -427,8 +437,53 @@ function TaskPipelineBoard({ tasks, isLoading, onNavigateToChat, projectName, on
     }
   }, [editingTaskId, editForm, projectName, onTaskUpdated]);
 
+  const handleAddTask = useCallback(async () => {
+    if (!addForm.title.trim() || !projectName || !addingToStage) return;
+    setAddingTask(true);
+    try {
+      await api.taskmaster.addTask(
+        encodeURIComponent(projectName),
+        {
+          title: addForm.title.trim(),
+          description: addForm.description.trim() || addForm.title.trim(),
+          priority: 'medium',
+          stage: addingToStage.stage === 'unassigned' ? undefined : addingToStage.stage,
+          insertAfterId: addingToStage.insertAfterId,
+        },
+      );
+      if (onTaskUpdated) onTaskUpdated();
+    } catch (e) {
+      console.error('Failed to add task:', e);
+    } finally {
+      setAddingTask(false);
+      setAddingToStage(null);
+      setAddForm({ title: '', description: '' });
+    }
+  }, [addForm, addingToStage, projectName, onTaskUpdated]);
+
+  const handleCancelAdd = useCallback(() => {
+    setAddingToStage(null);
+    setAddForm({ title: '', description: '' });
+  }, []);
+
+  const handleDeleteTask = useCallback(async () => {
+    if (!deleteConfirmTask || !projectName) return;
+    setDeletingTask(true);
+    try {
+      await api.taskmaster.deleteTask(
+        encodeURIComponent(projectName),
+        String(deleteConfirmTask.id),
+      );
+      if (onTaskUpdated) onTaskUpdated();
+    } catch (e) {
+      console.error('Failed to delete task:', e);
+    } finally {
+      setDeletingTask(false);
+      setDeleteConfirmTask(null);
+    }
+  }, [deleteConfirmTask, projectName, onTaskUpdated]);
+
   useEffect(() => {
-    if (!Array.isArray(tasks) || tasks.length === 0) return;
     setOpenStages((prev) => {
       if (Object.keys(prev).length > 0) return prev;
       return { survey: true, ideation: true, experiment: true, publication: true, promotion: true, unassigned: false };
@@ -560,23 +615,95 @@ function TaskPipelineBoard({ tasks, isLoading, onNavigateToChat, projectName, on
 
             <div className="space-y-1.5">
               {TASK_STAGE_ORDER.map((stage) => {
-                const stageTasks = groupedTasks[stage];
-                if (!stageTasks || stageTasks.length === 0) return null;
+                const stageTasks = groupedTasks[stage] || [];
+                // Always show pipeline stages; hide unassigned when empty
+                if (stage === 'unassigned' && stageTasks.length === 0) return null;
                 const isOpen = openStages[stage] ?? true;
                 const meta = TASK_STAGE_META[stage];
+
+                const isAddingHere = (afterId) =>
+                  addingToStage?.stage === stage && addingToStage?.insertAfterId === afterId;
+
+                const renderInsertionPoint = (afterId, key) =>
+                  isAddingHere(afterId) ? (
+                    <div key={key} className="px-3 py-2 border-b border-border bg-muted/20">
+                      <div className="space-y-1.5">
+                        <input
+                          type="text"
+                          className="w-full text-sm font-medium text-foreground bg-background border border-border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                          value={addForm.title}
+                          onChange={(e) => setAddForm((prev) => ({ ...prev, title: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') { e.preventDefault(); handleAddTask(); }
+                            if (e.key === 'Escape') handleCancelAdd();
+                          }}
+                          disabled={addingTask}
+                          autoFocus
+                          placeholder="Task title"
+                        />
+                        <textarea
+                          className="w-full text-xs text-muted-foreground bg-background border border-border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-y min-h-[2.5rem]"
+                          value={addForm.description}
+                          onChange={(e) => setAddForm((prev) => ({ ...prev, description: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAddTask(); }
+                            if (e.key === 'Escape') handleCancelAdd();
+                          }}
+                          disabled={addingTask}
+                          rows={2}
+                          placeholder="Task description (optional)"
+                        />
+                        <div className="flex items-center gap-1.5">
+                          <Button size="sm" className="h-6 px-2 text-[10px]" onClick={handleAddTask} disabled={addingTask || !addForm.title.trim()}>
+                            <Plus className="w-3 h-3 mr-1" />
+                            {addingTask ? 'Adding...' : 'Add'}
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={handleCancelAdd} disabled={addingTask}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={key} className="group/insert relative h-0">
+                      <button
+                        type="button"
+                        onClick={() => setAddingToStage({ stage, insertAfterId: afterId })}
+                        className="absolute inset-x-0 -top-2 -bottom-2 z-10 flex items-center justify-center opacity-0 hover:opacity-100 focus:opacity-100 transition-opacity"
+                      >
+                        <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-600 dark:text-cyan-400">
+                          <Plus className="w-3 h-3" />
+                          <span className="text-[10px]">Insert</span>
+                        </div>
+                      </button>
+                    </div>
+                  );
+
                 return (
-                  <div key={stage} className="rounded-lg border border-border overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => toggleStage(stage)}
-                      className="w-full px-3 py-2 flex items-center gap-2 hover:bg-muted/40 text-left"
-                    >
-                      {isOpen ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${meta.className}`}>{meta.label}</span>
-                      <span className="ml-auto text-xs text-muted-foreground">{stageTasks.length}</span>
-                    </button>
+                  <div key={stage} className="rounded-lg border border-border overflow-hidden pb-2">
+                    <div className="flex items-center hover:bg-muted/40">
+                      <button
+                        type="button"
+                        onClick={() => toggleStage(stage)}
+                        className="flex-1 px-3 py-2 flex items-center gap-2 text-left"
+                      >
+                        {isOpen ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${meta.className}`}>{meta.label}</span>
+                        <span className="ml-auto text-xs text-muted-foreground">{stageTasks.length}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setAddingToStage({ stage, insertAfterId: null }); if (!isOpen) toggleStage(stage); }}
+                        className="p-1.5 mr-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        title="Add task at beginning"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                     {isOpen && (
                       <div className="border-t border-border bg-background/60">
+                        {/* Insertion point before first task */}
+                        {renderInsertionPoint(null, `${stage}-insert-top`)}
                         {stageTasks.map((task) => {
                           const statusMeta = TASK_STATUS_META[task.status] || TASK_STATUS_META.pending;
                           const isFirstPendingTask = task.status === 'pending' && String(task.id) === firstPendingTaskId;
@@ -587,9 +714,9 @@ function TaskPipelineBoard({ tasks, isLoading, onNavigateToChat, projectName, on
                               ? 'border-blue-200/80 bg-blue-50/40 dark:border-blue-900/70 dark:bg-blue-950/20'
                               : 'border-slate-200/80 bg-slate-50/40 dark:border-slate-800 dark:bg-slate-950/20';
                           return (
+                            <React.Fragment key={`${stage}-${task.id}`}>
                             <div
-                              key={`${stage}-${task.id}`}
-                              className={`mx-2 my-2 rounded-xl border px-3 py-2.5 transition-all ${
+                              className={`group mx-2 my-2 rounded-xl border px-3 py-2.5 transition-all ${
                                 isFirstPendingTask && !isEditing ? 'ring-1 ring-emerald-300/60 dark:ring-emerald-700/60' : ''
                               } ${cardTone} ${!isEditing ? 'cursor-pointer hover:shadow-sm hover:border-cyan-300/70 dark:hover:border-cyan-800/70' : 'border-cyan-400/70 dark:border-cyan-700/70 bg-cyan-50/40 dark:bg-cyan-950/20'}`}
                               onDoubleClick={!isEditing ? () => handleDoubleClick(task) : undefined}
@@ -681,6 +808,14 @@ function TaskPipelineBoard({ tasks, isLoading, onNavigateToChat, projectName, on
                                         <PenTool className="w-3 h-3 mr-1" />
                                         {t('buttons.edit')}
                                       </Button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); setDeleteConfirmTask(task); }}
+                                        className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        title="Delete task"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
                                     </div>
                                     {isFirstPendingTask && onNavigateToChat && (
                                       <div className="mt-0.5 inline-flex flex-col items-end gap-1">
@@ -708,6 +843,9 @@ function TaskPipelineBoard({ tasks, isLoading, onNavigateToChat, projectName, on
                                 )}
                               </div>
                             </div>
+                              {/* Insertion point after this task */}
+                              {renderInsertionPoint(task.id, `${stage}-insert-after-${task.id}`)}
+                            </React.Fragment>
                           );
                         })}
                       </div>
@@ -719,6 +857,38 @@ function TaskPipelineBoard({ tasks, isLoading, onNavigateToChat, projectName, on
           </>
         )}
       </div>
+
+      {deleteConfirmTask && ReactDOM.createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-xl shadow-2xl max-w-sm w-full overflow-hidden">
+            <div className="p-5">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-base font-semibold text-foreground mb-1">Delete Task</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Are you sure you want to delete{' '}
+                    <span className="font-medium text-foreground">#{deleteConfirmTask.id} {deleteConfirmTask.title}</span>?
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">This action cannot be undone.</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 p-4 bg-muted/30 border-t border-border">
+              <Button variant="outline" className="flex-1" onClick={() => setDeleteConfirmTask(null)} disabled={deletingTask}>
+                Cancel
+              </Button>
+              <Button variant="destructive" className="flex-1" onClick={handleDeleteTask} disabled={deletingTask}>
+                <Trash2 className="w-4 h-4 mr-1.5" />
+                {deletingTask ? 'Deleting...' : 'Delete'}
+              </Button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
@@ -739,8 +909,7 @@ function ArtifactsCard({ artifacts, onSelect, selectedPath }) {
     'Literature Survey', 'Gap Analysis',
     'Data Loading', 'Prepare', 'Idea Generation', 'Medical Expert', 'Engineering Expert',
     'Repo Acquisition', 'Code Survey', 'Implementation Plan',
-    'ML Development', 'Judge', 'Experiment Analysis', 'Paper Writing',
-    'Homepage Delivery', 'Slide Generation', 'TTS Audio', 'Video Assembly', 'Other'
+    'ML Development', 'Judge', 'Experiment Analysis', 'Paper Writing', 'Other'
   ];
   const sorted = stageOrder.filter(s => groups[s]).map(s => ({ stage: s, ...groups[s] }));
 
@@ -805,6 +974,32 @@ const ideaMarkdownComponents = {
   ul: ({ children }) => <ul className="list-disc list-inside text-sm text-foreground/85 mb-2 space-y-0.5 ml-2">{children}</ul>,
   ol: ({ children }) => <ol className="list-decimal list-inside text-sm text-foreground/85 mb-2 space-y-0.5 ml-2">{children}</ol>,
   li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-4 border-blue-300 dark:border-blue-600 pl-3 italic text-foreground/70 my-2 text-sm">{children}</blockquote>
+  ),
+  a: ({ href, children }) => (
+    <a href={href} className="text-blue-600 dark:text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer">{children}</a>
+  ),
+  code: ({ inline, className, children, ...props }) => {
+    if (inline) {
+      return <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono text-foreground">{children}</code>;
+    }
+    const lang = (className || '').replace('language-', '');
+    return (
+      <div className="my-2 rounded-lg overflow-hidden border border-border">
+        {lang && <div className="bg-muted/60 px-3 py-1 text-xs text-muted-foreground font-mono border-b border-border">{lang}</div>}
+        <pre className="bg-muted/30 p-3 overflow-x-auto text-xs">
+          <code className="font-mono text-foreground/90">{children}</code>
+        </pre>
+      </div>
+    );
+  },
+  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+};
+
+/** Markdown component overrides */
+const markdownComponents = {
   blockquote: ({ children }) => (
     <blockquote className="border-l-4 border-blue-300 dark:border-blue-600 pl-3 italic text-foreground/70 my-2 text-sm">{children}</blockquote>
   ),
