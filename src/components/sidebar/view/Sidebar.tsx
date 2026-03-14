@@ -11,8 +11,6 @@ import SidebarCollapsed from './subcomponents/SidebarCollapsed';
 import SidebarContent from './subcomponents/SidebarContent';
 import SidebarModals from './subcomponents/SidebarModals';
 import ProjectCreationWizard from '../../ProjectCreationWizard';
-import { api } from '../../../utils/api';
-import { generateWorkspaceName } from '../../../utils/workspaceNameGenerator';
 import type { Project } from '../../../types/app';
 import type { SidebarProjectListProps } from './subcomponents/SidebarProjectList';
 import type { MCPServerStatus, SidebarProps } from '../types/types';
@@ -42,6 +40,7 @@ function Sidebar({
   activeTab,
   onOpenDashboard,
   onOpenSkills,
+  onOpenNews,
 }: SidebarProps) {
   const { t } = useTranslation(['sidebar', 'common']);
   const { isPWA } = useDeviceSettings({ trackMobile: false });
@@ -127,15 +126,6 @@ function Sidebar({
   }, [isPWA]);
 
   const [showWizard, setShowWizard] = useState(false);
-
-  const handleProjectCreated = () => {
-    if (window.refreshProjects) {
-      void window.refreshProjects();
-      return;
-    }
-
-    window.location.reload();
-  };
 
   const projectListProps: SidebarProjectListProps = {
     projects,
@@ -250,6 +240,7 @@ function Sidebar({
             activeTab={activeTab}
             onOpenDashboard={onOpenDashboard}
             onOpenSkills={onOpenSkills}
+            onOpenNews={onOpenNews}
             onCreateProject={() => setShowWizard(true)}
             onCollapseSidebar={handleCollapseSidebar}
 
