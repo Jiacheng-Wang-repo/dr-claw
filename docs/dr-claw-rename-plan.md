@@ -9,7 +9,8 @@ Rename the project from `VibeLab` / `Vibe Lab` to `Dr. Claw` without breaking pa
 - Branch: `dr-claw-phase-1-branding`
 - User-facing branding status: completed
 - Package/CLI/workspace-root migration status: completed
-- Last updated: `2026-03-14`
+- Compatibility and persisted-data migration status: in progress
+- Last updated: `2026-03-15`
 
 ## Current State Review
 
@@ -82,10 +83,12 @@ Applied or planned in this branch:
 
 - update `package.json` and `package-lock.json` package/bin names
 - update CLI help, status, self-update, and server startup hints to use `dr-claw`
+- keep `vibelab` as a temporary CLI alias for backwards compatibility
 - update user-facing manual upgrade commands to `npm install -g dr-claw@latest`
 - update workspace-root defaults in backend and UI to `~/dr-claw`
 - update tests and docs that depend on the default workspace path
 - keep GitHub repository links and clone paths unchanged until a later repo rename
+- add migration-aware handling for legacy persisted data where practical
 
 ### Phase 3: Technical identifier audit
 
@@ -174,6 +177,7 @@ Current branch policy:
 
 - Keep repo URLs and release-check repo identifiers unchanged.
 - Change package, CLI, and default workspace root now.
+- Keep the legacy `vibelab` CLI alias during the transition.
 - Revisit deeper internal identifier migration in a later release if needed.
 
 ## Risks
@@ -194,6 +198,8 @@ Current branch policy:
 - Version check still works after any repo rename.
 - Existing projects still open correctly.
 - Existing local settings and storage-backed UI preferences still work.
+- Legacy `vibelab` CLI invocations still work.
+- Legacy browser-stored sidebar width and survey diagram data still load under the new naming.
 - Grep shows no unintended `VibeLab`/`Vibe Lab` strings in user-facing surfaces.
 - Package metadata and update commands use `dr-claw`.
 - CLI help/status/update paths use `dr-claw`.
@@ -207,14 +213,16 @@ Verification completed for Phase 1:
 Additional verification required for the current branch scope:
 
 - run tests covering workspace-root defaults
-- decide whether to provide a temporary `vibelab` CLI alias for backwards compatibility
-- decide whether to migrate lower-level persisted/internal identifiers such as `.vibelab`, `vibelab-*` storage keys, provider IDs, and schema IDs
+- decide whether to migrate lower-level persisted/internal identifiers such as provider IDs and schema IDs
 
 Verification completed for the package/CLI/workspace-root migration:
 
 - package/bin metadata changed in both `package.json` and `package-lock.json`
 - targeted grep found no stale `vibelab` package/CLI/workspace-root references in the edited install/update flows
 - `npm run typecheck` passed after the runtime rename changes
+- legacy CLI alias `vibelab` now points to the same executable as `dr-claw`
+- legacy sidebar width and survey diagram localStorage entries are read and migrated to the new keys on use
+- auth database defaults now migrate from `~/.vibelab/auth.db` to `~/.dr-claw/auth.db` when possible
 
 ## Suggested First PR
 

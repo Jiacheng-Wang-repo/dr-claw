@@ -10,6 +10,9 @@
  *   status        - Show configuration and data locations
  *   help          - Show help information
  *   version       - Show version information
+ *
+ * Legacy alias:
+ *   vibelab       - Still supported as a compatibility command alias
  */
 
 import fs from 'fs';
@@ -134,6 +137,7 @@ function showStatus() {
     console.log(`      ${c.dim('>')} Use ${c.bright('dr-claw --port 8080')} to run on a custom port`);
     console.log(`      ${c.dim('>')} Use ${c.bright('dr-claw --database-path /path/to/db')} for custom database`);
     console.log(`      ${c.dim('>')} Run ${c.bright('dr-claw help')} for all options`);
+    console.log(`      ${c.dim('>')} Legacy alias ${c.bright('vibelab')} is still supported during the transition`);
     console.log(`      ${c.dim('>')} Access the UI at http://localhost:${process.env.PORT || '3001'}\n`);
 }
 
@@ -146,6 +150,9 @@ function showHelp() {
 
 Usage:
   dr-claw [command] [options]
+
+Legacy alias:
+  vibelab [command] [options]
 
 Commands:
   start          Start the Dr. Claw server (default)
@@ -166,6 +173,7 @@ Examples:
   $ dr-claw -p 3000                # Short form for port
   $ dr-claw start --port 4000      # Explicit start command
   $ dr-claw status                 # Show configuration
+  $ vibelab status                 # Legacy alias still works
 
 Environment Variables:
   PORT                Set server port (default: 3001)

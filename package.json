@@ -5,6 +5,7 @@
   "type": "module",
   "main": "server/index.js",
   "bin": {
+    "vibelab": "server/cli.js",
     "dr-claw": "server/cli.js"
   },
   "files": [
