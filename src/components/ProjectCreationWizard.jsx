@@ -29,6 +29,7 @@ const ProjectCreationWizard = ({ onClose, onProjectCreated }) => {
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
   const [newFolderName, setNewFolderName] = useState(generateWorkspaceName());
   const [creatingFolder, setCreatingFolder] = useState(false);
+  const [workspaceRoot, setWorkspaceRoot] = useState('~/dr-claw');
 
   const appendPathSegment = (basePath, segment) => {
     const separator = basePath.includes('\\') ? '\\' : '/';
@@ -64,6 +65,19 @@ const ProjectCreationWizard = ({ onClose, onProjectCreated }) => {
     return trimmedPath.slice(0, lastSeparatorIndex);
   };
 
+  const getResolvedWorkspaceRoot = async () => {
+    try {
+      const response = await api.getWorkspaceRoot();
+      const data = await response.json();
+      const resolvedRoot = data.path || data.defaultPath || '~/dr-claw';
+      setWorkspaceRoot(resolvedRoot);
+      return resolvedRoot;
+    } catch (error) {
+      console.error('Error loading workspace root:', error);
+      return workspaceRoot || '~/dr-claw';
+    }
+  };
+
   // Auto-fill new workspace path so users can continue without opening folder browser.
   useEffect(() => {
     if (step !== 2 || workspaceType !== 'new' || (workspacePath.trim() && projectName.trim())) {
@@ -73,15 +87,13 @@ const ProjectCreationWizard = ({ onClose, onProjectCreated }) => {
     const autoFillPath = async () => {
       const suggestedName = generateWorkspaceName();
       try {
-        const response = await api.browseFilesystem('~');
-        const data = await response.json();
-        const basePath = data.path || '~/dr-claw';
+        const basePath = await getResolvedWorkspaceRoot();
         const suggestedPath = appendPathSegment(basePath, suggestedName);
         setWorkspacePath((currentPath) => (currentPath.trim() ? currentPath : suggestedPath));
         setProjectName((currentName) => (currentName.trim() ? currentName : suggestedName));
       } catch (error) {
         console.error('Error auto-filling workspace path:', error);
-        const fallbackPath = `~/dr-claw/${suggestedName}`;
+        const fallbackPath = appendPathSegment(workspaceRoot || '~/dr-claw', suggestedName);
         setWorkspacePath((currentPath) => (currentPath.trim() ? currentPath : fallbackPath));
         setProjectName((currentName) => (currentName.trim() ? currentName : suggestedName));
       }
@@ -200,7 +212,7 @@ const ProjectCreationWizard = ({ onClose, onProjectCreated }) => {
 
   const openFolderBrowser = async () => {
     setShowFolderBrowser(true);
-    await loadBrowserFolders('~/dr-claw');
+    await loadBrowserFolders(await getResolvedWorkspaceRoot());
   };
 
   const loadBrowserFolders = async (path) => {
