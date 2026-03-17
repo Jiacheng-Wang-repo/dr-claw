@@ -2091,6 +2091,8 @@ async function getGeminiSessions(projectPath, optionsOrUserId = null) {
     for (const file of files) {
       if (!file.endsWith('.jsonl')) continue;
       const sessionId = path.basename(file, '.jsonl');
+      const indexedSession = dbSessionMap.get(sessionId);
+      const indexedMessageCount = Number(indexedSession?.message_count ?? indexedSession?.messageCount ?? 0);
 
       const filePath = path.join(geminiSessionsDir, file);
       try {
@@ -2103,11 +2105,13 @@ async function getGeminiSessions(projectPath, optionsOrUserId = null) {
         let foundMatchingCwd = false;
         let explicitTitle = null;
         let firstMessageText = null;
+        let messageCount = 0;
 
-        // If we have it in DB, we know it belongs to this project
-        if (dbSessionMap.has(sessionId)) {
+        // If we have it in DB, we know it belongs to this project.
+        // Still rescan when the indexed message count is missing/zero so legacy rows self-heal.
+        if (dbSessionMap.has(sessionId) && indexedMessageCount > 0) {
           foundMatchingCwd = true;
-          explicitTitle = dbSessionMap.get(sessionId).display_name;
+          explicitTitle = indexedSession.display_name;
         } else {
           // Read just the first few lines for metadata to index it
           const fileStream = fsSync.createReadStream(filePath);
@@ -2163,6 +2167,15 @@ async function getGeminiSessions(projectPath, optionsOrUserId = null) {
                     }
                   }
                 }
+
+                const isUserMessage = entry.role === 'user' || (entry.type === 'message' && entry.role === 'user');
+                const isAssistantMessage = entry.role === 'assistant'
+                  || entry.message?.role === 'assistant'
+                  || (entry.type === 'message' && entry.role === 'assistant');
+
+                if (isUserMessage || isAssistantMessage) {
+                  messageCount++;
+                }
               } catch (e) {}
             }
           }
@@ -2182,19 +2195,18 @@ async function getGeminiSessions(projectPath, optionsOrUserId = null) {
           const sessionMode = dbSessionMap.has(sessionId)
             ? extractSessionModeFromMetadata(dbSessionMap.get(sessionId).metadata)
             : 'research';
+          const resolvedMessageCount = Math.max(indexedMessageCount, messageCount);
 
-          if (!dbSessionMap.has(sessionId)) {
-            sessionDb.upsertSession(sessionId, projectName, 'gemini', finalName, stats.mtime.toISOString(), 0, {
-              sessionMode,
-            });
-          }
+          sessionDb.upsertSession(sessionId, projectName, 'gemini', finalName, stats.mtime.toISOString(), resolvedMessageCount, {
+            sessionMode,
+          });
 
           sessions.push({
             id: sessionId,
             name: finalName,
             createdAt: stats.birthtime.toISOString(),
             lastActivity: stats.mtime.toISOString(),
-            messageCount: 0,
+            messageCount: resolvedMessageCount,
             mode: sessionMode,
             projectPath: projectPath,
             filePath,
