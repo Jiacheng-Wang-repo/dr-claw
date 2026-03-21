@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import { decodeHtmlEntities, formatUsageLimitText } from '../utils/chatFormatting';
+import { decodeHtmlEntities, formatUsageLimitText, unescapeWithMathProtection } from '../utils/chatFormatting';
 import { parseAskUserAnswers, mergeAnswersIntoToolInput } from '../utils/messageTransforms';
 import { safeLocalStorage } from '../utils/chatStorage';
 import type { ChatMessage, PendingPermissionRequest } from '../types/types';
@@ -135,6 +135,20 @@ export function useChatRealtimeHandlers({
     const childToolUpdates: { parentId: string; child: any }[] = [];
 
     structuredData.content.forEach((part: any) => {
+      if (part.type === 'thinking' || part.type === 'reasoning') {
+        const thinkingText = part.thinking || part.reasoning || part.text || '';
+        if (thinkingText.trim()) {
+          newMessages.push({
+            type: 'assistant',
+            content: unescapeWithMathProtection(thinkingText),
+            timestamp: new Date(),
+            isThinking: true,
+            isStreaming: true,
+          });
+        }
+        return;
+      }
+
       if (part.type === 'tool_use') {
         const toolInput = part.input ? JSON.stringify(part.input, null, 2) : '';
 
@@ -439,6 +453,8 @@ export function useChatRealtimeHandlers({
     switch (latestMessage.type) {
       case 'session-created':
         if (latestMessage.sessionId && (!currentSessionId || currentSessionId.startsWith('new-session-'))) {
+          const createdSessionProvider =
+            (latestMessage.provider as SessionProvider | undefined) || provider;
           if (selectedProject && latestMessage.mode) {
             safeLocalStorage.setItem(`session_mode_${selectedProject.name}_${latestMessage.sessionId}`, String(latestMessage.mode));
           }
@@ -453,7 +469,7 @@ export function useChatRealtimeHandlers({
           }
           setIsSystemSessionChange(true);
           onReplaceTemporarySession?.(latestMessage.sessionId);
-          onNavigateToSession?.(latestMessage.sessionId);
+          onNavigateToSession?.(latestMessage.sessionId, createdSessionProvider, selectedProject?.name);
           setPendingPermissionRequests((previous) =>
             previous.map((request) =>
               request.sessionId ? request : { ...request, sessionId: latestMessage.sessionId },
@@ -500,7 +516,7 @@ export function useChatRealtimeHandlers({
           if (!currentSessionId || structuredMessageData.session_id !== currentSessionId) {
             console.log('Claude CLI session duplication or new init detected');
             setIsSystemSessionChange(true);
-            onNavigateToSession?.(structuredMessageData.session_id);
+            onNavigateToSession?.(structuredMessageData.session_id, 'claude', selectedProject?.name);
             return;
           }
         }
@@ -549,7 +565,7 @@ export function useChatRealtimeHandlers({
           if (!currentSessionId || structuredMessageData.session_id !== currentSessionId) {
             console.log('Gemini CLI session init detected');
             setIsSystemSessionChange(true);
-            onNavigateToSession?.(structuredMessageData.session_id);
+            onNavigateToSession?.(structuredMessageData.session_id, 'gemini', selectedProject?.name);
             return;
           }
         }
@@ -642,7 +658,7 @@ export function useChatRealtimeHandlers({
             if (!isSystemInitForView) return;
             if (!currentSessionId || cursorData.session_id !== currentSessionId) {
               setIsSystemSessionChange(true);
-              onNavigateToSession?.(cursorData.session_id);
+              onNavigateToSession?.(cursorData.session_id, 'cursor', selectedProject?.name);
             }
           }
         } catch (error) {
@@ -1049,7 +1065,9 @@ export function useChatRealtimeHandlers({
         if (codexPendingSessionId && !currentSessionId) {
           setCurrentSessionId(codexActualSessionId);
           setIsSystemSessionChange(true);
-          if (codexActualSessionId) onNavigateToSession?.(codexActualSessionId);
+          if (codexActualSessionId) {
+            onNavigateToSession?.(codexActualSessionId, 'codex', selectedProject?.name);
+          }
           sessionStorage.removeItem('pendingSessionId');
         }
         if (selectedProject) safeLocalStorage.removeItem(`chat_messages_${selectedProject.name}`);

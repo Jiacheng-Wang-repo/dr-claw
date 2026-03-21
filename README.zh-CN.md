@@ -39,6 +39,7 @@
 - [贡献](#贡献)
 - [FAQ](./docs/faq.zh-CN.md)
 - [许可证](#许可证)
+- [引用](#引用)
 - [致谢](#致谢)
 - [支持与社区](#支持与社区)
 
@@ -46,14 +47,12 @@
 
 Dr. Claw 是一个面向不同研究方向的通用 AI 研究助手，帮助研究者和团队完成从想法形成、实验推进到论文产出的全流程工作。它把关键研究环节整合到同一个空间中，让你把精力放在问题本身和迭代质量上，而不是工具切换与流程拼接。
 
-<details>
-<summary><strong>产品截图</strong></summary>
+<strong>产品截图</strong>
 
 <p align="center">
   <img src="public/screenshots/chat.png" alt="Dr. Claw 对话界面" width="1000">
 </p>
 
-</details>
 
 <details>
 <summary><strong>理念：杠杆化认知</strong></summary>
@@ -674,6 +673,20 @@ Dr. Claw 完全响应式设计。在移动设备上：
 其中，源自 Claude Code UI 的上游部分继续适用 GNU General Public License v3.0（GPL-3.0）；Dr. Claw Contributors 的原创修改与新增部分适用 GNU Affero General Public License v3.0（AGPL-3.0）。
 
 完整许可证文本与适用范围说明请参见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。
+
+## 引用
+
+如果这个项目对你的研究有帮助，欢迎引用我们的工作：
+
+```bibtex
+@misc{song2026drclaw,
+  author       = {Dingjie Song and Hanrong Zhang and Dawei Liu and Yixin Liu and Zhengqing Yuan and Siqi Zhang and Lichao Sun},
+  title        = {Dr. Claw: An AI Research Workspace from Idea to Paper},
+  year         = {2026},
+  organization = {GitHub},
+  url          = {https://github.com/OpenLAIR/dr-claw},
+}
+```
 
 ## 致谢
 
