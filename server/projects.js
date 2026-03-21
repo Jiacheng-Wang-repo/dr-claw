@@ -86,6 +86,22 @@ function extractSessionModeFromMetadata(metadata) {
     return normalizeSessionMode(metadata.sessionMode || metadata.mode);
 }
 
+function readExplicitSessionModeFromMetadata(metadata) {
+    if (!metadata || typeof metadata !== 'object') {
+        return null;
+    }
+
+    if (metadata.sessionMode === 'workspace_qa' || metadata.mode === 'workspace_qa') {
+        return 'workspace_qa';
+    }
+
+    if (metadata.sessionMode === 'research' || metadata.mode === 'research') {
+        return 'research';
+    }
+
+    return null;
+}
+
 function stripInternalContextPrefix(value) {
     let cleaned = String(value || '');
     const contextPrefixPattern = /^\s*\[Context:[^\]]*]\s*(?:\r?\n\s*)*/i;
@@ -131,6 +147,57 @@ function inferSessionModeFromUserMessage(value) {
     }
 
     return null;
+}
+
+async function findGeminiTmpSessionMode(sessionId) {
+    if (!sessionId) {
+        return null;
+    }
+
+    const geminiTmpDir = path.join(os.homedir(), '.gemini', 'tmp');
+    const sessionPrefix = String(sessionId).split('-')[0];
+
+    const walk = async (dir, depth = 0) => {
+        if (depth > 4) {
+            return null;
+        }
+
+        let entries = [];
+        try {
+            entries = await fs.readdir(dir, { withFileTypes: true });
+        } catch (_) {
+            return null;
+        }
+
+        for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                const nested = await walk(fullPath, depth + 1);
+                if (nested) {
+                    return nested;
+                }
+                continue;
+            }
+
+            if (!entry.name.endsWith('.json') || !entry.name.includes(sessionPrefix)) {
+                continue;
+            }
+
+            try {
+                const content = await fs.readFile(fullPath, 'utf8');
+                const modeFromText = extractSessionModeFromText(content);
+                if (modeFromText) {
+                    return modeFromText;
+                }
+            } catch (_) {
+                // Ignore unreadable temp files.
+            }
+        }
+
+        return null;
+    };
+
+    return walk(geminiTmpDir);
 }
 
 function normalizeTaskStatus(status) {
@@ -1088,7 +1155,7 @@ async function parseJsonlSessions(filePath, projectName = null, dbSessionMap = n
                 lastUserMessage: null,
                 lastAssistantMessage: null,
                 mode: dbSessionMap && dbSessionMap.has(entry.sessionId)
-                  ? extractSessionModeFromMetadata(dbSessionMap.get(entry.sessionId).metadata)
+                  ? (readExplicitSessionModeFromMetadata(dbSessionMap.get(entry.sessionId).metadata) || 'research')
                   : 'research'
               });
             }
@@ -1132,6 +1199,13 @@ async function parseJsonlSessions(filePath, projectName = null, dbSessionMap = n
                 textContent.includes('CRITICAL: You MUST respond with ONLY a JSON') || // Filter Task Master system prompts
                 textContent === 'Warmup' // Explicitly filter out "Warmup"
               );
+
+              const modeFromMessage = typeof textContent === 'string'
+                ? extractSessionModeFromText(textContent)
+                : null;
+              if (modeFromMessage) {
+                session.mode = modeFromMessage;
+              }
 
               if (typeof textContent === 'string' && textContent.length > 0 && !isSystemMessage) {
                 const cleanedUserMessage = stripInternalContextPrefix(textContent);
@@ -2097,7 +2171,7 @@ async function getCursorSessions(projectPath, options = {}) {
             lastActivity: createdAt,
             messageCount: messageCountResult.count || 0,
             mode: dbSessionMap.has(sessionId)
-              ? extractSessionModeFromMetadata(dbSessionMap.get(sessionId).metadata)
+              ? (readExplicitSessionModeFromMetadata(dbSessionMap.get(sessionId).metadata) || 'research')
               : 'research',
             projectPath
           });
@@ -2149,7 +2223,7 @@ async function getGeminiSessions(projectPath, optionsOrUserId = null) {
         ? sessionDb.getSessionsByProject(legacyProjectName)
         : [])
     ];
-    const dbSessionMap = new Map(dbSessions.map(s => [s.id, s]));
+    const dbSessionMap = new Map(dbSessions.filter((session) => session.provider === 'gemini').map(s => [s.id, s]));
 
     for (const file of files) {
       if (!file.endsWith('.jsonl')) continue;
@@ -2169,6 +2243,12 @@ async function getGeminiSessions(projectPath, optionsOrUserId = null) {
         let explicitTitle = null;
         let firstMessageText = null;
         let messageCount = 0;
+        const tmpSessionMode = await findGeminiTmpSessionMode(sessionId);
+        let detectedSessionMode = tmpSessionMode || (
+          dbSessionMap.has(sessionId)
+            ? readExplicitSessionModeFromMetadata(dbSessionMap.get(sessionId).metadata)
+            : null
+        );
 
         // If we have it in DB, we know it belongs to this project.
         // Still rescan when the indexed message count is missing/zero so legacy rows self-heal.
@@ -2214,6 +2294,13 @@ async function getGeminiSessions(projectPath, optionsOrUserId = null) {
                   explicitTitle = title.trim();
                 }
 
+                if (!detectedSessionMode) {
+                  const metadataMode = extractSessionModeFromMetadata(entry.payload || entry);
+                  if (metadataMode && metadataMode !== 'research') {
+                    detectedSessionMode = metadataMode;
+                  }
+                }
+
                 // 3. User Message Extraction
                 if (!firstMessageText && (entry.role === 'user' || (entry.type === 'message' && entry.role === 'user'))) {
                   let content = entry.content || entry.message?.content || entry.payload?.message?.content;
@@ -2222,8 +2309,16 @@ async function getGeminiSessions(projectPath, optionsOrUserId = null) {
                       Array.isArray(content) ? content.map(part => part.text || (typeof part === 'string' ? part : '')).join(' ') : '';
 
                     if (textContent.trim()) {
-                      let cleaned = textContent.trim();
+                      const modeFromMessage = extractSessionModeFromText(textContent);
+                      if (modeFromMessage && !detectedSessionMode) {
+                        detectedSessionMode = modeFromMessage;
+                      }
+
+                      let cleaned = stripInternalContextPrefix(textContent);
                       if (!cleaned.includes('Base directory for this skill:') && !cleaned.startsWith('<command-name>')) {
+                        if (!detectedSessionMode) {
+                          detectedSessionMode = inferSessionModeFromUserMessage(cleaned);
+                        }
                         const helpMatch = cleaned.match(/Please help me with ["'](.*?)["']/);
                         firstMessageText = helpMatch ? helpMatch[1] : cleaned.split('\n')[0].replace(/#+\s*/, '').trim();
                       }
@@ -2255,9 +2350,7 @@ async function getGeminiSessions(projectPath, optionsOrUserId = null) {
           }
 
           // Upsert to database so next time is faster
-          const sessionMode = dbSessionMap.has(sessionId)
-            ? extractSessionModeFromMetadata(dbSessionMap.get(sessionId).metadata)
-            : 'research';
+          const sessionMode = normalizeSessionMode(detectedSessionMode);
           const resolvedMessageCount = Math.max(indexedMessageCount, messageCount);
 
           sessionDb.upsertSession(sessionId, projectName, 'gemini', finalName, stats.mtime.toISOString(), resolvedMessageCount, {
@@ -2416,7 +2509,7 @@ async function getCodexSessions(projectPath, options = {}) {
     const dedupedSessions = Array.from(new Map(sessions.map((session) => [session.id, session])).values()).map((session) => ({
       ...session,
       mode: dbSessionMap.has(session.id)
-        ? extractSessionModeFromMetadata(dbSessionMap.get(session.id).metadata)
+        ? (readExplicitSessionModeFromMetadata(dbSessionMap.get(session.id).metadata) || normalizeSessionMode(session.mode))
         : normalizeSessionMode(session.mode),
     }));
     return limit > 0 ? dedupedSessions.slice(0, limit) : dedupedSessions;

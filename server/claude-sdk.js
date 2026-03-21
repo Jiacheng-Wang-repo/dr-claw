@@ -27,6 +27,31 @@ const activeSessions = new Map();
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion']);
 
+function encodeProjectPath(projectPath) {
+  return path.resolve(projectPath).replace(/[\\/:\s~_]/g, '-');
+}
+
+async function persistClaudeSessionMetadata(sessionId, projectPath, sessionMode) {
+  if (!sessionId || !projectPath) {
+    return;
+  }
+
+  try {
+    const { sessionDb } = await import('./database/db.js');
+    sessionDb.upsertSession(
+      sessionId,
+      encodeProjectPath(projectPath),
+      'claude',
+      'New Session',
+      new Date().toISOString(),
+      0,
+      { sessionMode: sessionMode || 'research' },
+    );
+  } catch (error) {
+    console.warn('[claude-sdk] Failed to persist session metadata:', error.message);
+  }
+}
+
 function resolveToolApproval(requestId, decision) {
   resolvePermApproval(requestId, decision);
 }
@@ -529,6 +554,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
         // Send session-created event only once for new sessions
         if (!sessionId && !sessionCreatedSent) {
           sessionCreatedSent = true;
+          await persistClaudeSessionMetadata(capturedSessionId, projectDir, sessionMode);
           ws.send({
             type: 'session-created',
             sessionId: capturedSessionId,

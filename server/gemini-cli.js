@@ -71,6 +71,29 @@ const GEMINI_PLAN_BLOCKED_TOOLS = new Set([
   'Edit'
 ]);
 
+function encodeProjectPath(projectPath) {
+  return path.resolve(projectPath).replace(/[\\/:\s~_]/g, '-');
+}
+
+async function persistGeminiSessionMetadata(sessionId, projectPath, sessionMode) {
+  if (!sessionId || !projectPath) return;
+
+  try {
+    const { sessionDb } = await import('./database/db.js');
+    sessionDb.upsertSession(
+      sessionId,
+      encodeProjectPath(projectPath),
+      'gemini',
+      'Untitled Session',
+      new Date().toISOString(),
+      0,
+      { sessionMode: sessionMode || 'research' },
+    );
+  } catch (error) {
+    console.warn('[Gemini] Failed to persist session metadata:', error.message);
+  }
+}
+
 function normalizeGeminiToolName(name) {
   if (!name || typeof name !== 'string') return name;
   const normalized = name.trim();
@@ -395,7 +418,7 @@ async function cleanupGeminiTempFiles(tempImagePaths, tempDir) {
  * Ensures a session directory exists and creates a basic JSONL metadata file if it doesn't.
  * This helps Dr. Claw discover the session even if the CLI hasn't written to it yet.
  */
-async function syncSessionMetadata(sessionId, projectPath) {
+async function syncSessionMetadata(sessionId, projectPath, sessionMode = 'research') {
   if (!sessionId || !projectPath) return;
   
   const geminiSessionsDir = path.join(os.homedir(), '.gemini', 'sessions');
@@ -416,10 +439,14 @@ async function syncSessionMetadata(sessionId, projectPath) {
         payload: {
           id: sessionId,
           cwd: projectPath,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          mode: sessionMode || 'research',
+          sessionMode: sessionMode || 'research',
         },
         cwd: projectPath, // Compatibility
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        mode: sessionMode || 'research',
+        sessionMode: sessionMode || 'research',
       };
       
       await fs.writeFile(sessionFile, JSON.stringify(initialEntry) + '\n', 'utf8');
@@ -748,7 +775,8 @@ export async function spawnGemini(command, options = {}, ws) {
               capturedSessionId = sid;
               
               // Persist metadata to filesystem so Dr. Claw can discover it on refresh
-              await syncSessionMetadata(capturedSessionId, workingDir);
+              await syncSessionMetadata(capturedSessionId, workingDir, sessionMode);
+              await persistGeminiSessionMetadata(capturedSessionId, workingDir, sessionMode);
               
               // NEW: If we have an initial command, save it now that we have a real SID
               if (cleanedInitialUserCommand) {
