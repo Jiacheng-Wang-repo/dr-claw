@@ -38,6 +38,7 @@
 - [贡献](#贡献)
 - [FAQ](./docs/faq.zh-CN.md)
 - [许可证](#许可证)
+- [引用](#引用)
 - [致谢](#致谢)
 - [支持与社区](#支持与社区)
 
@@ -425,6 +426,20 @@ Dr. Claw 完全响应式设计。在移动设备上：
 其中，源自 Claude Code UI 的上游部分继续适用 GNU General Public License v3.0（GPL-3.0）；Dr. Claw Contributors 的原创修改与新增部分适用 GNU Affero General Public License v3.0（AGPL-3.0）。
 
 完整许可证文本与适用范围说明请参见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。
+
+## 引用
+
+如果这个项目对你的研究有帮助，欢迎引用我们的工作：
+
+```bibtex
+@misc{song2026drclaw,
+  author       = {Dingjie Song and Hanrong Zhang and Dawei Liu and Yixin Liu and Zhengqing Yuan and Siqi Zhang and Lichao Sun},
+  title        = {Dr. Claw: An AI Research Workspace from Idea to Paper},
+  year         = {2026},
+  organization = {GitHub},
+  url          = {https://github.com/OpenLAIR/dr-claw},
+}
+```
 
 ## 致谢
 

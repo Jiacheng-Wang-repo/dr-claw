@@ -38,6 +38,7 @@
 - [Contributing](#contributing)
 - [FAQ](./docs/faq.md)
 - [License](#license)
+- [Citation](#citation)
 - [Acknowledgments](#acknowledgments)
 - [Support & Community](#support--community)
 
@@ -422,6 +423,20 @@ This repository contains a combined work.
 Upstream portions derived from Claude Code UI remain under GNU General Public License v3.0 (GPL-3.0), while original modifications and additions by Dr. Claw Contributors are licensed under GNU Affero General Public License v3.0 (AGPL-3.0).
 
 See [LICENSE](LICENSE) and [NOTICE](NOTICE) for the full license texts and scope details.
+
+## Citation
+
+If you find Dr. Claw useful in your research, please cite:
+
+```bibtex
+@misc{song2026drclaw,
+  author       = {Dingjie Song and Hanrong Zhang and Dawei Liu and Yixin Liu and Zhengqing Yuan and Siqi Zhang and Lichao Sun},
+  title        = {Dr. Claw: An AI Research Workspace from Idea to Paper},
+  year         = {2026},
+  organization = {GitHub},
+  url          = {https://github.com/OpenLAIR/dr-claw},
+}
+```
 
 ## Acknowledgments
 
