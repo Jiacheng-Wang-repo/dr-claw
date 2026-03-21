@@ -2,19 +2,19 @@
 End-to-end tests for the Dr. Claw CLI.
 
 These tests hit a real running DrClaw server and are skipped unless the
-VIBELAB_E2E environment variable is set.
+DRCLAW_E2E (or VIBELAB_E2E) environment variable is set.
 
-Required environment variables when VIBELAB_E2E=1:
-  VIBELAB_URL    Base URL of the running server (default: http://localhost:3001)
-  VIBELAB_USER   Username to authenticate with
-  VIBELAB_PASS   Password to authenticate with
+Required environment variables when DRCLAW_E2E=1:
+  DRCLAW_URL    Base URL of the running server (default: http://localhost:3001)
+  DRCLAW_USER   Username to authenticate with
+  DRCLAW_PASS   Password to authenticate with
 
 Optional:
   CLI_ANYTHING_FORCE_INSTALLED   Set to 1 to use the installed CLI binary
                                  instead of resolving via importlib.
 
 Run:
-  VIBELAB_E2E=1 VIBELAB_USER=admin VIBELAB_PASS=secret pytest \\
+  DRCLAW_E2E=1 DRCLAW_USER=admin DRCLAW_PASS=secret pytest \\
       cli_anything/vibelab/tests/test_full_e2e.py -v
 """
 
@@ -29,12 +29,12 @@ import unittest
 import pytest
 import requests
 
-_E2E = os.environ.get("VIBELAB_E2E", "")
-_SKIP_REASON = "Set VIBELAB_E2E=1 to run end-to-end tests against a live server."
+_E2E = os.environ.get("DRCLAW_E2E") or os.environ.get("VIBELAB_E2E", "")
+_SKIP_REASON = "Set DRCLAW_E2E=1 to run end-to-end tests against a live server."
 
-BASE_URL = os.environ.get("VIBELAB_URL", "http://localhost:3001")
-E2E_USER = os.environ.get("VIBELAB_USER", "")
-E2E_PASS = os.environ.get("VIBELAB_PASS", "")
+BASE_URL = os.environ.get("DRCLAW_URL") or os.environ.get("VIBELAB_URL", "http://localhost:3001")
+E2E_USER = os.environ.get("DRCLAW_USER") or os.environ.get("VIBELAB_USER", "")
+E2E_PASS = os.environ.get("DRCLAW_PASS") or os.environ.get("VIBELAB_PASS", "")
 
 
 # ---------------------------------------------------------------------------

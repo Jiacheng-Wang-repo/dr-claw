@@ -264,27 +264,14 @@ def send_message(
     message: str,
     session_id: Optional[str] = None,
     provider: str = "claude",
-    timeout: int = 120,
+    timeout: Optional[int] = None,
+    permission_mode: Optional[str] = None,
+    model: Optional[str] = None,
+    attachments: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
     """
     Connect to the DrClaw WebSocket, send a provider command, collect the full
     response, and return {"reply": str, "session_id": str, "project_path": str}.
-
-    Parameters
-    ----------
-    client:
-        Authenticated DrClaw client.
-    project_path:
-        Filesystem path (or project ID) passed as projectPath in the command
-        options.
-    message:
-        The text to send to Claude.
-    session_id:
-        If provided, resumes an existing session.  If None, starts a new one.
-    provider:
-        Session provider: claude, cursor, codex, or gemini.
-    timeout:
-        Maximum seconds to wait for the full response.
     """
     normalized_provider = _normalize_provider(provider)
     token = client._require_token()
@@ -292,6 +279,11 @@ def send_message(
     ws_base = _ws_url_from_base(base_url).rstrip("/")
     ws_url = f"{ws_base}/ws?token={token}"
     normalized_project_path = _normalize_project_path(project_path)
+
+    # If no timeout is specified, we wait for a very long time (1 hour)
+    # and rely on heartbeats to keep the connection alive.
+    effective_timeout = timeout if timeout is not None else 3600
+    is_long_wait = timeout is None
 
     async def _run() -> Dict[str, Any]:
         try:
@@ -305,27 +297,46 @@ def send_message(
         text_parts: List[str] = []
         stream_parts: List[str] = []
         captured_session_id: Optional[str] = session_id
+        last_heartbeat = asyncio.get_event_loop().time()
+
+        payload_options = {
+            "cwd": normalized_project_path,
+            "projectPath": normalized_project_path,
+            "sessionId": session_id,
+            "resume": session_id is not None,
+        }
+        if permission_mode:
+            payload_options["permissionMode"] = permission_mode
+        if model:
+            payload_options["model"] = model
+        if attachments:
+            payload_options["attachments"] = attachments
 
         payload = {
             "type": _PROVIDER_COMMAND_TYPES[normalized_provider],
             "command": message,
-            "options": {
-                "cwd": normalized_project_path,
-                "projectPath": normalized_project_path,
-                "sessionId": session_id,
-                "resume": session_id is not None,
-            },
+            "options": payload_options,
         }
 
         async with websockets.connect(ws_url) as ws:
             await ws.send(json.dumps(payload))
+            if is_long_wait:
+                from ..utils.output import info
+                info("Waiting for agent to complete task (Heartbeat enabled)...")
 
             async def receive_loop() -> None:
-                nonlocal captured_session_id
+                nonlocal captured_session_id, last_heartbeat
 
                 while True:
                     try:
-                        raw = await ws.recv()
+                        # We use a smaller recv timeout to check for local heartbeat/timeout logic
+                        raw = await asyncio.wait_for(ws.recv(), timeout=30)
+                        last_heartbeat = asyncio.get_event_loop().time()
+                    except asyncio.TimeoutError:
+                        # No message for 30s, check if we've exceeded the total effective timeout
+                        if asyncio.get_event_loop().time() - last_heartbeat > effective_timeout:
+                            raise RuntimeError(f"Session timed out after {effective_timeout}s of inactivity.")
+                        continue
                     except Exception:
                         return
 
@@ -335,6 +346,13 @@ def send_message(
                         continue
 
                     event_type = event.get("type", "")
+
+                    # Reset inactivity timer on any valid event
+                    last_heartbeat = asyncio.get_event_loop().time()
+
+                    if event_type == "heartbeat":
+                        # Optional: could print a dot or similar to show life
+                        continue
 
                     # Capture session ID
                     if not captured_session_id:
@@ -347,20 +365,17 @@ def send_message(
 
                     elif event_type in ("claude-response", "gemini-response"):
                         data = event.get("data", {})
-
                         if isinstance(data, dict) and data.get("type") == "content_block_delta":
                             delta = data.get("delta", {})
                             delta_text = delta.get("text") if isinstance(delta, dict) else None
                             if isinstance(delta_text, str) and delta_text:
                                 stream_parts.append(delta_text)
                             continue
-
                         if isinstance(data, dict) and data.get("type") == "content_block_stop":
                             if stream_parts:
                                 text_parts.append("".join(stream_parts))
                                 stream_parts.clear()
                             continue
-
                         text = _extract_text_from_agent_response(data)
                         if text:
                             text_parts.append(text)
@@ -399,14 +414,13 @@ def send_message(
                         err_msg = event.get("error", "Unknown error from DrClaw server")
                         raise RuntimeError(f"DrClaw server error: {err_msg}")
 
-                    # Generic done signals
                     elif event.get("final") or event.get("done"):
                         if stream_parts:
                             text_parts.append("".join(stream_parts))
                             stream_parts.clear()
                         return
 
-            await asyncio.wait_for(receive_loop(), timeout=timeout)
+            await receive_loop()
 
         reply = "\n".join(text_parts).strip()
         return {

@@ -12,7 +12,7 @@ Global flags (must come before the command):
 
 Sub-command tree:
   auth
-    login       Authenticate and store token in ~/.vibelab_session.json
+    login       Authenticate and store token in ~/.drclaw_session.json
     logout      Remove the local session file
     status      Check server auth status (no token required)
   projects
@@ -167,11 +167,24 @@ def _handle_error(exc: Exception, json_mode: bool) -> None:
             detail = exc.response.json().get("error", exc.response.text)
         except Exception:
             detail = str(exc)
-        error(f"HTTP {exc.response.status_code}: {detail}")
+        
+        # Enhanced error handling for session-related failures
+        detail_lower = detail.lower()
+        is_session_error = any(msg in detail_lower for msg in ["missing rollout path", "session not found", "state db missing"])
+        
+        if is_session_error:
+            error(f"HTTP {exc.response.status_code}: {detail}")
+            if not json_mode:
+                info(f"\n💡 {click.style('Tip:', bold=True)} This session appears to be invalid or has expired on the server.")
+                info("   This often happens with 'codex' when the local state path is missing.")
+                info("   Try starting a new session with a different provider (e.g., gemini):")
+                info(f"   {_PRIMARY_CLI_NAME} chat send --project <project> --provider gemini -m \"Continue Task...\"")
+        else:
+            error(f"HTTP {exc.response.status_code}: {detail}")
     elif isinstance(exc, requests.ConnectionError):
         error(f"Could not connect to the Dr. Claw server. Is it running?  ({exc})")
     elif isinstance(exc, requests.Timeout):
-        error("Request timed out.")
+        error("Request timed out. Try increasing --timeout.")
     else:
         error(str(exc))
     sys.exit(1)
@@ -1221,12 +1234,37 @@ def projects_create(ctx: Context, workspace_path: str, display_name: Optional[st
         _handle_error(exc, ctx.json_mode)
 
 
+import base64
+import mimetypes
+
+def _process_attachments(attachments: List[str]) -> List[Dict[str, str]]:
+    processed = []
+    for path in attachments:
+        p = Path(path).expanduser()
+        if not p.exists():
+            error(f"Attachment not found: {path}")
+            sys.exit(1)
+        
+        mime_type, _ = mimetypes.guess_type(str(p))
+        if not mime_type:
+            mime_type = "application/octet-stream"
+            
+        with open(p, "rb") as f:
+            data = f.read()
+            b64_data = base64.b64encode(data).decode("utf-8")
+            processed.append({
+                "name": p.name,
+                "data": f"data:{mime_type};base64,{b64_data}"
+            })
+    return processed
+
 @projects.command("idea")
 @click.argument("workspace_path")
 @click.option("--name", "display_name", default=None, metavar="DISPLAY_NAME", help="Optional display name to save for the project.")
 @click.option("--idea", required=True, metavar="TEXT", help="Initial idea to seed into the new project.")
 @click.option("--provider", type=click.Choice(_PROVIDER_CHOICES, case_sensitive=False), default="claude", show_default=True, help="Provider used to start the seeded discussion.")
-@click.option("--timeout", default=180, show_default=True, metavar="SECONDS", help="Maximum seconds to wait for the initial seeded reply.")
+@click.option("--timeout", type=int, default=None, metavar="SECONDS", help="Wait timeout. If omitted, waits indefinitely with heartbeat.")
+@click.option("--attach", "attachments", multiple=True, help="Path to a file or image to attach. Repeat for multiple attachments.")
 @pass_context
 def projects_idea(
     ctx: Context,
@@ -1234,10 +1272,12 @@ def projects_idea(
     display_name: Optional[str],
     idea: str,
     provider: str,
-    timeout: int,
+    timeout: Optional[int],
+    attachments: List[str],
 ) -> None:
     """Create a new project and seed it with an initial idea discussion."""
     try:
+        processed_attachments = _process_attachments(attachments) if attachments else None
         result = projects_mod.create_idea_project(
             ctx.client,
             _normalize_path(workspace_path),
@@ -1245,6 +1285,7 @@ def projects_idea(
             idea=idea,
             provider=_normalize_provider(provider) or "claude",
             timeout=timeout,
+            attachments=processed_attachments,
         )
         if ctx.json_mode:
             output(result, json_mode=True)
@@ -1609,6 +1650,11 @@ def workflow_status(ctx: Context, project_ref: str, force_json: bool) -> None:
 @click.option("--project", "project_ref", required=True, metavar="PROJECT", help="Project name, display name, or path.")
 @click.option("--session", "session_id", required=True, metavar="SESSION_ID", help="Session ID to continue.")
 @click.option("--message", "message", "-m", required=True, metavar="TEXT", help="Instruction to continue execution.")
+@click.option("--provider", type=click.Choice(_PROVIDER_CHOICES, case_sensitive=False), default=None, help="Override the session's provider.")
+@click.option("--timeout", type=int, default=None, metavar="SECONDS", help="Wait timeout. If omitted, waits indefinitely with heartbeat.")
+@click.option("--bypass-permissions", is_flag=True, default=False, help="Automatically approve all tool calls.")
+@click.option("--attach", "attachments", multiple=True, help="Path to a file or image to attach. Repeat for multiple attachments.")
+@click.option("--model", default=None, metavar="MODEL", help="Override the model for this request.")
 @click.option("--notify-openclaw", is_flag=True, default=False, help="Send a completion notification to OpenClaw.")
 @click.option("--notify-to", "notify_channel", default=None, metavar="CHANNEL", help="Override the OpenClaw channel for this command.")
 @click.option("--json", "force_json", is_flag=True, default=False, help="Output results as JSON.")
@@ -1618,6 +1664,11 @@ def workflow_continue(
     project_ref: str,
     session_id: str,
     message: str,
+    provider: Optional[str],
+    timeout: Optional[int],
+    bypass_permissions: bool,
+    attachments: List[str],
+    model: Optional[str],
     notify_openclaw: bool,
     notify_channel: Optional[str],
     force_json: bool,
@@ -1627,22 +1678,29 @@ def workflow_continue(
         if force_json:
             ctx.json_mode = True
         project = _resolve_project_ref(ctx.client, project_ref, allow_path_fallback=True)
-        provider = _resolve_session_provider(ctx.client, project, session_id)
+        normalized_provider = _normalize_provider(provider)
+        if not normalized_provider:
+            normalized_provider = _resolve_session_provider(ctx.client, project, session_id)
+        
+        processed_attachments = _process_attachments(attachments) if attachments else None
         project_path = project.get("fullPath") or project.get("path") or project_ref
         result = chat_mod.send_message(
             ctx.client,
             project_path=str(project_path),
             message=message,
-            provider=provider,
+            provider=normalized_provider,
             session_id=session_id,
-            timeout=180,
+            timeout=timeout,
+            permission_mode="bypassPermissions" if bypass_permissions else None,
+            model=model,
+            attachments=processed_attachments,
         )
         payload = {
             "action": "continue",
             "project": project.get("name") or project.get("fullPath") or project.get("path"),
             "project_display_name": _project_label(project),
             "project_path": result.get("project_path"),
-            "provider": result.get("provider", provider),
+            "provider": result.get("provider", normalized_provider),
             "session_id": result.get("session_id") or session_id,
             "reply": result.get("reply", ""),
         }
@@ -1722,29 +1780,48 @@ def workflow_reject(ctx: Context, project_ref: str, task_id: str, reason: Option
 @workflow.command("resume")
 @click.option("--project", "project_ref", required=True, metavar="PROJECT", help="Project name, display name, or path.")
 @click.option("--session", "session_id", required=True, metavar="SESSION_ID", help="Session ID to resume.")
+@click.option("--provider", type=click.Choice(_PROVIDER_CHOICES, case_sensitive=False), default=None, help="Override the session's provider.")
+@click.option("--timeout", type=int, default=None, metavar="SECONDS", help="Wait timeout. If omitted, waits indefinitely with heartbeat.")
+@click.option("--bypass-permissions", is_flag=True, default=False, help="Automatically approve all tool calls.")
+@click.option("--attach", "attachments", multiple=True, help="Path to a file or image to attach. Repeat for multiple attachments.")
 @click.option("--json", "force_json", is_flag=True, default=False, help="Output results as JSON.")
 @pass_context
-def workflow_resume(ctx: Context, project_ref: str, session_id: str, force_json: bool) -> None:
+def workflow_resume(
+    ctx: Context,
+    project_ref: str,
+    session_id: str,
+    provider: Optional[str],
+    timeout: Optional[int],
+    bypass_permissions: bool,
+    attachments: List[str],
+    force_json: bool,
+) -> None:
     """Resume a waiting session with a default continue instruction."""
     try:
         if force_json:
             ctx.json_mode = True
         project = _resolve_project_ref(ctx.client, project_ref, allow_path_fallback=True)
-        provider = _resolve_session_provider(ctx.client, project, session_id)
+        normalized_provider = _normalize_provider(provider)
+        if not normalized_provider:
+            normalized_provider = _resolve_session_provider(ctx.client, project, session_id)
+        
+        images = _process_attachments(attachments) if attachments else None
         project_path = project.get("fullPath") or project.get("path") or project_ref
         result = chat_mod.send_message(
             ctx.client,
             project_path=str(project_path),
             message="Continue from the latest state and summarize the next meaningful checkpoint.",
-            provider=provider,
+            provider=normalized_provider,
             session_id=session_id,
-            timeout=180,
+            timeout=timeout,
+            permission_mode="bypassPermissions" if bypass_permissions else None,
+            images=images,
         )
         payload = {
             "action": "resume",
             "project": project.get("name") or project.get("fullPath") or project.get("path"),
             "project_display_name": _project_label(project),
-            "provider": result.get("provider", provider),
+            "provider": result.get("provider", normalized_provider),
             "session_id": result.get("session_id") or session_id,
             "reply": result.get("reply", ""),
         }
@@ -1969,7 +2046,10 @@ def chat() -> None:
 @click.option("--message", "message", "-m", required=True, metavar="TEXT", help="Message to send to the session.")
 @click.option("--provider", type=click.Choice(_PROVIDER_CHOICES, case_sensitive=False), default="claude", show_default=True, help="Session provider.")
 @click.option("--session", "session_id", default=None, metavar="SESSION_ID", help="Session ID to resume (omit to start a new session).")
-@click.option("--timeout", type=int, default=180, show_default=True, metavar="SECONDS", help="Maximum seconds to wait for completion.")
+@click.option("--timeout", type=int, default=None, metavar="SECONDS", help="Wait timeout. If omitted, waits indefinitely with heartbeat.")
+@click.option("--bypass-permissions", is_flag=True, default=False, help="Automatically approve all tool calls.")
+@click.option("--attach", "attachments", multiple=True, help="Path to a file or image to attach. Repeat for multiple attachments.")
+@click.option("--model", default=None, metavar="MODEL", help="Override the model for this request.")
 @click.option("--json", "force_json", is_flag=True, default=False, help="Output results as JSON.")
 @click.option("--notify-openclaw", is_flag=True, default=False, help="After completion, send a summary message to the configured OpenClaw channel.")
 @click.option("--notify-to", "notify_channel", default=None, metavar="CHANNEL", help="Override the OpenClaw notification channel for this command.")
@@ -1980,7 +2060,10 @@ def chat_send(
     message: str,
     provider: str,
     session_id: Optional[str],
-    timeout: int,
+    timeout: Optional[int],
+    bypass_permissions: bool,
+    attachments: List[str],
+    model: Optional[str],
     force_json: bool,
     notify_openclaw: bool,
     notify_channel: Optional[str],
@@ -1991,6 +2074,8 @@ def chat_send(
             ctx.json_mode = True
         normalized_provider = _normalize_provider(provider) or "claude"
         project = _resolve_project_ref(ctx.client, project_ref, allow_path_fallback=True)
+        
+        processed_attachments = _process_attachments(attachments) if attachments else None
         project_path = project.get("fullPath") or project.get("path") or project_ref
         result = chat_mod.send_message(
             ctx.client,
@@ -1999,6 +2084,9 @@ def chat_send(
             provider=normalized_provider,
             session_id=session_id or None,
             timeout=timeout,
+            permission_mode="bypassPermissions" if bypass_permissions else None,
+            model=model,
+            attachments=processed_attachments,
         )
         payload = {
             "project": project.get("name") or project.get("fullPath") or project.get("path"),
@@ -2033,7 +2121,11 @@ def chat_send(
 @click.option("--project", "project_ref", required=True, metavar="PROJECT", help="Project name, display name, or filesystem path.")
 @click.option("--session", "session_id", required=True, metavar="SESSION_ID", help="Session ID to resume.")
 @click.option("--message", "message", "-m", required=True, metavar="TEXT", help="Reply text to send.")
-@click.option("--timeout", type=int, default=180, show_default=True, metavar="SECONDS", help="Maximum seconds to wait for completion.")
+@click.option("--provider", type=click.Choice(_PROVIDER_CHOICES, case_sensitive=False), default=None, help="Override the session's provider.")
+@click.option("--timeout", type=int, default=None, metavar="SECONDS", help="Wait timeout. If omitted, waits indefinitely with heartbeat.")
+@click.option("--bypass-permissions", is_flag=True, default=False, help="Automatically approve all tool calls.")
+@click.option("--attach", "attachments", multiple=True, help="Path to a file or image to attach. Repeat for multiple attachments.")
+@click.option("--model", default=None, metavar="MODEL", help="Override the model for this request.")
 @click.option("--json", "force_json", is_flag=True, default=False, help="Output results as JSON.")
 @click.option("--notify-openclaw", is_flag=True, default=False, help="After completion, send a summary message to the configured OpenClaw channel.")
 @click.option("--notify-to", "notify_channel", default=None, metavar="CHANNEL", help="Override the OpenClaw notification channel for this command.")
@@ -2043,7 +2135,11 @@ def chat_reply(
     project_ref: str,
     session_id: str,
     message: str,
-    timeout: int,
+    provider: Optional[str],
+    timeout: Optional[int],
+    bypass_permissions: bool,
+    attachments: List[str],
+    model: Optional[str],
     force_json: bool,
     notify_openclaw: bool,
     notify_channel: Optional[str],
@@ -2053,7 +2149,11 @@ def chat_reply(
         if force_json:
             ctx.json_mode = True
         project = _resolve_project_ref(ctx.client, project_ref, allow_path_fallback=True)
-        normalized_provider = _resolve_session_provider(ctx.client, project, session_id)
+        normalized_provider = _normalize_provider(provider)
+        if not normalized_provider:
+            normalized_provider = _resolve_session_provider(ctx.client, project, session_id)
+        
+        processed_attachments = _process_attachments(attachments) if attachments else None
         project_path = project.get("fullPath") or project.get("path") or project_ref
         result = chat_mod.send_message(
             ctx.client,
@@ -2062,6 +2162,9 @@ def chat_reply(
             provider=normalized_provider,
             session_id=session_id,
             timeout=timeout,
+            permission_mode="bypassPermissions" if bypass_permissions else None,
+            model=model,
+            attachments=processed_attachments,
         )
         payload = {
             "project": project.get("name") or project.get("fullPath") or project.get("path"),
@@ -2480,7 +2583,7 @@ def openclaw_install(ctx: Context, openclaw_dir: Optional[str], server_url: Opti
 
 @openclaw.command("push")
 @click.argument("message_text")
-@click.option("--to", "channel", default=None, metavar="CHANNEL", help="Destination channel (for example feishu:<chat_id>). Falls back to saved openclaw_push_channel in ~/.vibelab_session.json.")
+@click.option("--to", "channel", default=None, metavar="CHANNEL", help="Destination channel (for example feishu:<chat_id>). Falls back to saved openclaw_push_channel in ~/.drclaw_session.json.")
 @pass_context
 def openclaw_push(ctx: Context, message_text: str, channel: Optional[str]) -> None:
     """Send a message via the OpenClaw CLI."""
@@ -2508,7 +2611,7 @@ def openclaw_push(ctx: Context, message_text: str, channel: Optional[str]) -> No
 @click.option("--push-channel", "push_channel", required=True, metavar="CHANNEL", help="Default channel for `openclaw push` and `openclaw report`.")
 @pass_context
 def openclaw_configure(ctx: Context, push_channel: str) -> None:
-    """Save OpenClaw integration settings to ~/.vibelab_session.json."""
+    """Save OpenClaw integration settings to ~/.drclaw_session.json."""
     session_file = SESSION_FILE
     session_data = _load_session_file(session_file)
     session_data["openclaw_push_channel"] = push_channel

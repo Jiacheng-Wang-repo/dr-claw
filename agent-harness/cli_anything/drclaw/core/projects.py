@@ -106,7 +106,8 @@ def create_idea_project(
     display_name: Optional[str] = None,
     idea: Optional[str] = None,
     provider: str = "claude",
-    timeout: int = 180,
+    timeout: Optional[int] = None,
+    attachments: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
     """
     Create a new workspace-backed project and optionally seed it with an idea
@@ -132,6 +133,7 @@ def create_idea_project(
         provider=provider,
         session_id=None,
         timeout=timeout,
+        attachments=attachments,
     )
     return {"project": project, "seeded": True, "chat": reply}
 

@@ -56,7 +56,7 @@ Then authenticate:
 drclaw auth login --username <username> --password <password>
 ```
 
-The token is stored in `~/.vibelab_session.json`. If that file only contains OpenClaw integration fields and no `token`, authenticated commands like `projects list` and `chat waiting` will return `Not logged in`.
+The token is stored in `~/.drclaw_session.json`. If that file only contains OpenClaw integration fields and no `token`, authenticated commands like `projects list` and `chat waiting` will return `Not logged in`.
 
 ## Quick start
 
@@ -118,26 +118,31 @@ Use these for project creation, idea intake, last-message lookup, and progress i
 drclaw --json chat sessions --project <project-ref>
 drclaw --json chat waiting
 drclaw --json chat waiting --project <project-ref>
-drclaw --json chat reply --project <project-ref> --session <session-id> -m "<message>"
-drclaw --json chat send --project <project-ref> --message "<message>"
+# Advanced reply with provider override and auto-approval
+drclaw --json chat reply --project <project-ref> --session <session-id> \
+  --provider gemini --bypass-permissions --timeout 300 -m "<message>"
+
+drclaw --json chat send --project <project-ref> --provider gemini --bypass-permissions --message "<message>"
 drclaw --json chat project --project <project-ref> --session <session-id> -m "<message>"
 ```
 
-Recommended OpenClaw pattern:
-1. Run `chat waiting --json`.
-2. Let the user choose a project/session.
-3. Run `chat reply` or `chat project`.
-4. Re-check `chat waiting --project ... --json` to see whether the session cleared.
+# Advanced Chat Options:
+- `--provider [claude|gemini|codex|cursor]`: Force a specific provider. Useful if the original session provider (like Codex) is failing.
+- `--bypass-permissions`: Automatically approve all tool calls (like reading/writing files). Essential for non-interactive automation.
+- `--timeout <seconds>`: Set a hard wait time. **If omitted, the CLI waits indefinitely (up to 1 hour)** and uses **heartbeat detection** to ensure the session is still active. This is recommended for long-running research tasks.
+- `--attach <path>`: Attach a file or image. CLI handles Base64 encoding and MIME detection automatically. Can be repeated.
+- `--model <model-id>`: Override the default model used by the provider.
 
 ### Workflow / task control
 
 ```bash
 drclaw --json workflow status --project <project-ref>
-drclaw --json workflow continue --project <project-ref> --session <session-id> -m "<instruction>"
+drclaw --json workflow continue --project <project-ref> --session <session-id> \
+  --provider gemini --bypass-permissions -m "<instruction>"
 drclaw --json workflow approve --project <project-ref> --session <session-id>
 drclaw --json workflow reject --project <project-ref> --session <session-id> -m "<reason>"
 drclaw --json workflow retry --project <project-ref> --session <session-id>
-drclaw --json workflow resume --project <project-ref> --session <session-id>
+drclaw --json workflow resume --project <project-ref> --session <session-id> --bypass-permissions
 drclaw --json taskmaster artifacts --project <project-ref>
 ```
 
@@ -218,7 +223,7 @@ drclaw install --server-url http://localhost:3001
 That command will:
 - copy the full Dr. Claw skill into `~/.openclaw/workspace/skills/drclaw`
 - install the wrapper scripts OpenClaw uses for serialized local turns
-- save the current Dr. Claw server URL into `~/.vibelab_session.json`
+- save the current Dr. Claw server URL into `~/.drclaw_session.json`
 - remember the local `drclaw` executable path for OpenClaw usage
 
 If you also want to save a default push channel during setup:
@@ -311,10 +316,12 @@ This returns:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `VIBELAB_URL` | Server base URL | `http://localhost:3001` |
-| `VIBELAB_TOKEN` | Inject token without session file | session file |
+| `DRCLAW_URL` | Server base URL | `http://localhost:3001` |
+| `DRCLAW_TOKEN` | Inject token without session file | session file |
+| `VIBELAB_URL` | Legacy server base URL (fallback) | `http://localhost:3001` |
+| `VIBELAB_TOKEN` | Legacy token (fallback) | session file |
 
-The `--url URL` flag overrides `VIBELAB_URL` for a single invocation.
+The `--url URL` flag overrides `DRCLAW_URL` and `VIBELAB_URL` for a single invocation.
 
 ## Running tests
 

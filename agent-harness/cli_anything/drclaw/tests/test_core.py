@@ -85,17 +85,23 @@ class TestSessionFile(unittest.TestCase):
         self.assertEqual(token, "stored-token")
 
     def test_get_token_prefers_env_var(self):
-        """VIBELAB_TOKEN env var should take precedence over the session file."""
+        """DRCLAW_TOKEN env var should take precedence over the session file."""
         from cli_anything.drclaw.core.session import DrClaw
 
         self.session_path.write_text(json.dumps({"token": "file-token"}))
 
         with self._patch_session_file():
-            with patch.dict(os.environ, {"VIBELAB_TOKEN": "env-token"}):
+            # Test DRCLAW_TOKEN (highest priority)
+            with patch.dict(os.environ, {"DRCLAW_TOKEN": "env-token"}):
                 client = DrClaw()
                 token = client.get_token()
-
-        self.assertEqual(token, "env-token")
+                self.assertEqual(token, "env-token")
+            
+            # Test VIBELAB_TOKEN (fallback)
+            with patch.dict(os.environ, {"VIBELAB_TOKEN": "legacy-token"}):
+                client = DrClaw()
+                token = client.get_token()
+                self.assertEqual(token, "legacy-token")
 
     def test_not_logged_in_error(self):
         """Calling get() without a token raises NotLoggedInError."""
@@ -118,22 +124,26 @@ class TestSessionFile(unittest.TestCase):
         self.assertEqual(url, "http://localhost:3001")
 
     def test_get_base_url_env_var(self):
-        """VIBELAB_URL env var overrides the default."""
+        """DRCLAW_URL env var overrides the default."""
         from cli_anything.drclaw.core.session import DrClaw
 
         with self._patch_session_file():
-            with patch.dict(os.environ, {"VIBELAB_URL": "http://myserver:4000"}):
+            with patch.dict(os.environ, {"DRCLAW_URL": "http://myserver:4000"}):
                 client = DrClaw()
                 url = client.get_base_url()
-
-        self.assertEqual(url, "http://myserver:4000")
+                self.assertEqual(url, "http://myserver:4000")
+            
+            with patch.dict(os.environ, {"VIBELAB_URL": "http://legacy:5000"}):
+                client = DrClaw()
+                url = client.get_base_url()
+                self.assertEqual(url, "http://legacy:5000")
 
     def test_get_base_url_override_param(self):
         """url_override constructor param takes highest precedence."""
         from cli_anything.drclaw.core.session import DrClaw
 
         with self._patch_session_file():
-            with patch.dict(os.environ, {"VIBELAB_URL": "http://env:9000"}):
+            with patch.dict(os.environ, {"DRCLAW_URL": "http://env:9000"}):
                 client = DrClaw(url_override="http://explicit:1234")
                 url = client.get_base_url()
 

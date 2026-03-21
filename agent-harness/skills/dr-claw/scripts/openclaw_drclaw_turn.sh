@@ -20,7 +20,7 @@ else
 fi
 
 export DRCLAW_BIN="${DRCLAW_BIN:-$DRCLAW_BIN_DEFAULT}"
-export VIBELAB_URL="${VIBELAB_URL:-http://localhost:3001}"
+export DRCLAW_URL="${DRCLAW_URL:-${VIBELAB_URL:-http://localhost:3001}}"
 
 mkdir -p "$LOCK_DIR"
 

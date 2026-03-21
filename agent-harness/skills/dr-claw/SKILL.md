@@ -31,10 +31,10 @@ Assume the local wrapper exports these defaults when OpenClaw runs the skill:
 
 ```bash
 DRCLAW_BIN=/Users/david/Library/Python/3.9/bin/drclaw
-VIBELAB_URL=http://localhost:3001
+DRCLAW_URL=http://localhost:3001
 ```
 
-When invoking the CLI from OpenClaw, prefer `$DRCLAW_BIN --url "$VIBELAB_URL" ...` instead of relying on PATH.
+When invoking the CLI from OpenClaw, prefer `$DRCLAW_BIN --url "$DRCLAW_URL" ...` instead of relying on PATH.
 
 ## Core operating rule
 
@@ -53,31 +53,31 @@ This serializes `openclaw agent --local` calls per agent and avoids session-lock
 List projects:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" projects list
+$DRCLAW_BIN --url "$DRCLAW_URL" projects list
 ```
 
 Inspect the latest message in a project:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" projects latest <project> --json
+$DRCLAW_BIN --url "$DRCLAW_URL" projects latest <project> --json
 ```
 
 Inspect project progress and next actions:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" projects progress <project> --json
+$DRCLAW_BIN --url "$DRCLAW_URL" projects progress <project> --json
 ```
 
 Create a new empty project workspace:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" projects create /absolute/path/to/project --name "Display Name" --json
+$DRCLAW_BIN --url "$DRCLAW_URL" projects create /absolute/path/to/project --name "Display Name" --json
 ```
 
 Create a new project from a fresh idea and immediately start discussion:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" projects idea /absolute/path/to/project --name "Display Name" --idea "<idea text>" --json
+$DRCLAW_BIN --url "$DRCLAW_URL" projects idea /absolute/path/to/project --name "Display Name" --idea "<idea text>" --json
 ```
 
 Use `projects idea` for the “I suddenly have an idea” flow.
@@ -87,14 +87,14 @@ Use `projects idea` for the “I suddenly have an idea” flow.
 List known sessions for one project:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" chat sessions --project <project> --json
+$DRCLAW_BIN --url "$DRCLAW_URL" chat sessions --project <project> --json
 ```
 
 List waiting sessions across all projects or one project:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" chat waiting --json
-$DRCLAW_BIN --url "$VIBELAB_URL" chat waiting --project <project> --json
+$DRCLAW_BIN --url "$DRCLAW_URL" chat waiting --json
+$DRCLAW_BIN --url "$DRCLAW_URL" chat waiting --project <project> --json
 ```
 
 Recommended triage flow:
@@ -107,15 +107,20 @@ Recommended triage flow:
 Once the user chooses a session:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" chat reply --project <project> --session <session-id> -m "<message>" --json
+$DRCLAW_BIN --url "$DRCLAW_URL" chat reply --project <project> --session <session-id> \
+  --bypass-permissions --attach /path/to/file -m "<message>" --json
 ```
 
-Do not ask for provider. `chat reply` derives the provider from the stored session.
+**Note:** Always use `--bypass-permissions` in automation to avoid being blocked by server-side tool approval requests. 
+
+**Timeout & Heartbeat:** If you omit `--timeout`, the CLI will wait indefinitely (with a 1-hour safety cap) and use **heartbeat detection**. This is preferred for complex tasks like `Task 10` that run experiments.
+
+If a specific provider (like Codex) is failing, add `--provider gemini` to the command to switch.
 
 Immediately after replying, check whether the session is still processing:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" chat waiting --project <project> --json
+$DRCLAW_BIN --url "$DRCLAW_URL" chat waiting --project <project> --json
 ```
 
 If you need to wait until the session leaves the waiting list, use:
@@ -131,12 +136,12 @@ The script returns JSON indicating whether the session cleared or timed out.
 Use these commands for workflow actions:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" workflow status --project <project> --json
-$DRCLAW_BIN --url "$VIBELAB_URL" workflow continue --project <project> --session <session-id> -m "<instruction>" --json
-$DRCLAW_BIN --url "$VIBELAB_URL" workflow approve --project <project> --session <session-id> --json
-$DRCLAW_BIN --url "$VIBELAB_URL" workflow reject --project <project> --session <session-id> -m "<reason>" --json
-$DRCLAW_BIN --url "$VIBELAB_URL" workflow retry --project <project> --session <session-id> --json
-$DRCLAW_BIN --url "$VIBELAB_URL" workflow resume --project <project> --session <session-id> --json
+$DRCLAW_BIN --url "$DRCLAW_URL" workflow status --project <project> --json
+$DRCLAW_BIN --url "$DRCLAW_URL" workflow continue --project <project> --session <session-id> --bypass-permissions -m "<instruction>" --json
+$DRCLAW_BIN --url "$DRCLAW_URL" workflow approve --project <project> --session <session-id> --json
+$DRCLAW_BIN --url "$DRCLAW_URL" workflow reject --project <project> --session <session-id> -m "<reason>" --json
+$DRCLAW_BIN --url "$DRCLAW_URL" workflow retry --project <project> --session <session-id> --json
+$DRCLAW_BIN --url "$DRCLAW_URL" workflow resume --project <project> --session <session-id> --bypass-permissions --json
 ```
 
 ## Digests and reporting
@@ -144,26 +149,26 @@ $DRCLAW_BIN --url "$VIBELAB_URL" workflow resume --project <project> --session <
 Daily digest:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" digest daily --json
+$DRCLAW_BIN --url "$DRCLAW_URL" digest daily --json
 ```
 
 Per-project digest:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" digest project --project <project> --json
+$DRCLAW_BIN --url "$DRCLAW_URL" digest project --project <project> --json
 ```
 
 Cross-project portfolio digest with recommended follow-ups:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" digest portfolio --json
+$DRCLAW_BIN --url "$DRCLAW_URL" digest portfolio --json
 ```
 
 Artifacts and workflow state:
 
 ```bash
-$DRCLAW_BIN --url "$VIBELAB_URL" workflow status --project <project> --json
-$DRCLAW_BIN --url "$VIBELAB_URL" taskmaster artifacts --project <project> --json
+$DRCLAW_BIN --url "$DRCLAW_URL" workflow status --project <project> --json
+$DRCLAW_BIN --url "$DRCLAW_URL" taskmaster artifacts --project <project> --json
 ```
 
 ## Response format guidance for mobile / chat
@@ -177,27 +182,27 @@ Keep replies compact:
 ## Reliable OpenClaw patterns
 
 Pattern: list projects
-1. Run `$DRCLAW_BIN --url "$VIBELAB_URL" projects list`.
+1. Run `$DRCLAW_BIN --url "$DRCLAW_URL" projects list`.
 2. Present short names, display names, and paths only when needed.
 
 Pattern: user asks what needs attention
-1. Run `$DRCLAW_BIN --url "$VIBELAB_URL" chat waiting --json`.
+1. Run `$DRCLAW_BIN --url "$DRCLAW_URL" chat waiting --json`.
 2. Group by project.
 3. Present session id, provider, summary, and last activity.
 
 Pattern: user asks OpenClaw to answer a waiting session
-1. Run `$DRCLAW_BIN --url "$VIBELAB_URL" chat reply --project ... --session ... -m ... --json`.
-2. Immediately run `$DRCLAW_BIN --url "$VIBELAB_URL" chat waiting --project ... --json`.
+1. Run `$DRCLAW_BIN --url "$DRCLAW_URL" chat reply --project ... --session ... -m ... --json`.
+2. Immediately run `$DRCLAW_BIN --url "$DRCLAW_URL" chat waiting --project ... --json`.
 3. If the same session is still present, report that it is still processing.
 4. Optionally run `drclaw_wait_until_clear.sh` and report the final clearance.
 
 Pattern: user suddenly has a new idea
 1. Pick a workspace path, usually `/Users/<user>/vibelab/<slug>`.
-2. Run `$DRCLAW_BIN --url "$VIBELAB_URL" projects idea <path> --name <display-name> --idea <idea> --json`.
+2. Run `$DRCLAW_BIN --url "$DRCLAW_URL" projects idea <path> --name <display-name> --idea <idea> --json`.
 3. Return the created project, session id, and first Dr. Claw reply.
-4. Continue the discussion with `$DRCLAW_BIN --url "$VIBELAB_URL" chat reply` on that session.
+4. Continue the discussion with `$DRCLAW_BIN --url "$DRCLAW_URL" chat reply` on that session.
 
 Pattern: user wants an update without opening Dr. Claw
-1. Run `$DRCLAW_BIN --url "$VIBELAB_URL" digest daily --json`, `$DRCLAW_BIN --url "$VIBELAB_URL" digest project --project ... --json`, or `$DRCLAW_BIN --url "$VIBELAB_URL" digest portfolio --json`.
+1. Run `$DRCLAW_BIN --url "$DRCLAW_URL" digest daily --json`, `$DRCLAW_BIN --url "$DRCLAW_URL" digest project --project ... --json`, or `$DRCLAW_BIN --url "$DRCLAW_URL" digest portfolio --json`.
 2. Use `digest portfolio` when the user wants cross-project progress, attention recommendations, or suggested replies.
 3. Summarize only the load-bearing items: waiting sessions, task progress, blockers, next actions.
