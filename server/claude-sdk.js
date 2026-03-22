@@ -558,9 +558,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
       // Transform and send message to WebSocket
       const transformedMessage = transformMessage(message);
+      const sessionData = capturedSessionId ? getSession(capturedSessionId) : null;
       ws.send({
         type: 'claude-response',
-        data: transformedMessage,
+        data: {
+          ...transformedMessage,
+          startTime: sessionData?.startTime
+        },
         sessionId: capturedSessionId || sessionId || null
       });
 
@@ -664,6 +668,16 @@ function isClaudeSDKSessionActive(sessionId) {
 }
 
 /**
+ * Gets the start time of an SDK session
+ * @param {string} sessionId - Session identifier
+ * @returns {number|null} Start time in ms or null
+ */
+function getClaudeSDKSessionStartTime(sessionId) {
+  const session = getSession(sessionId);
+  return session ? session.startTime : null;
+}
+
+/**
  * Gets all active SDK session IDs
  * @returns {Array<string>} Array of active session IDs
  */
@@ -676,6 +690,7 @@ export {
   queryClaudeSDK,
   abortClaudeSDKSession,
   isClaudeSDKSessionActive,
+  getClaudeSDKSessionStartTime,
   getActiveClaudeSDKSessions,
   resolveToolApproval
 };
