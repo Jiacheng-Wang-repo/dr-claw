@@ -67,6 +67,13 @@ import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 import os from 'os';
 import { stripInternalContextPrefix } from './utils/sessionFormatting.js';
+import {
+  extractSessionModeFromMetadata,
+  extractSessionModeFromText,
+  inferSessionModeFromUserMessage,
+  normalizeSessionMode,
+  readExplicitSessionModeFromMetadata,
+} from './utils/sessionMode.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DRCLAW_SKILLS_DIR = path.join(__dirname, '..', 'skills');
@@ -254,123 +261,6 @@ function buildTrashEntry(projectName, projectInfo = null, dbEntry = null) {
     canRestore: Boolean(trashMeta.originalPath && filesExist),
     filesExist,
   };
-}
-
-function normalizeSessionMode(value) {
-    return value === 'workspace_qa' ? 'workspace_qa' : 'research';
-}
-
-function extractSessionModeFromMetadata(metadata) {
-    if (!metadata || typeof metadata !== 'object') {
-        return 'research';
-    }
-
-    return normalizeSessionMode(metadata.sessionMode || metadata.mode);
-}
-
-function readExplicitSessionModeFromMetadata(metadata) {
-    if (!metadata || typeof metadata !== 'object') {
-        return null;
-    }
-
-    if (metadata.sessionMode === 'workspace_qa' || metadata.mode === 'workspace_qa') {
-        return 'workspace_qa';
-    }
-
-    if (metadata.sessionMode === 'research' || metadata.mode === 'research') {
-        return 'research';
-    }
-
-    return null;
-}
-
-function extractSessionModeFromText(value) {
-    const text = String(value || '');
-    if (/\[Context:\s*session-mode=workspace_qa\]/i.test(text)) {
-        return 'workspace_qa';
-    }
-    if (/\[Context:\s*session-mode=research\]/i.test(text)) {
-        return 'research';
-    }
-    return null;
-}
-
-function inferSessionModeFromUserMessage(value) {
-    const text = String(value || '').trim().toLowerCase();
-    if (!text) {
-        return null;
-    }
-
-    const researchHints = [
-        'research', 'paper', 'dataset', 'experiment', 'hypothesis', 'survey', 'benchmark',
-        'literature', '研究', '论文', '实验', '数据集', '调研', '综述', '假设'
-    ];
-    if (researchHints.some((hint) => text.includes(hint))) {
-        return 'research';
-    }
-
-    const workspaceHints = [
-        'commit', 'push', 'pull request', 'git ', 'branch', 'repo', 'repository',
-        'code', 'file', 'files', 'module', 'function', 'implementation', 'debug',
-        'fix', 'bug', 'test', 'workspace', 'cli', 'terminal',
-        '代码', '文件', '仓库', '提交', '推送', '修复', '报错', '函数', '模块'
-    ];
-    if (workspaceHints.some((hint) => text.includes(hint))) {
-        return 'workspace_qa';
-    }
-
-    return null;
-}
-
-async function findGeminiTmpSessionMode(sessionId) {
-    if (!sessionId) {
-        return null;
-    }
-
-    const geminiTmpDir = path.join(os.homedir(), '.gemini', 'tmp');
-    const sessionPrefix = String(sessionId).split('-')[0];
-
-    const walk = async (dir, depth = 0) => {
-        if (depth > 4) {
-            return null;
-        }
-
-        let entries = [];
-        try {
-            entries = await fs.readdir(dir, { withFileTypes: true });
-        } catch (_) {
-            return null;
-        }
-
-        for (const entry of entries) {
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-                const nested = await walk(fullPath, depth + 1);
-                if (nested) {
-                    return nested;
-                }
-                continue;
-            }
-
-            if (!entry.name.endsWith('.json') || !entry.name.includes(sessionPrefix)) {
-                continue;
-            }
-
-            try {
-                const content = await fs.readFile(fullPath, 'utf8');
-                const modeFromText = extractSessionModeFromText(content);
-                if (modeFromText) {
-                    return modeFromText;
-                }
-            } catch (_) {
-                // Ignore unreadable temp files.
-            }
-        }
-
-        return null;
-    };
-
-    return walk(geminiTmpDir);
 }
 
 function normalizeTaskStatus(status) {
@@ -2692,6 +2582,8 @@ async function buildGeminiSessionsIndex() {
       let explicitTitle = indexedSession?.display_name || null;
       let firstMessageText = null;
       let messageCount = 0;
+      // Recovery order: DB metadata -> JSONL metadata -> context marker -> high-confidence heuristic -> default.
+      let detectedSessionMode = readExplicitSessionModeFromMetadata(indexedSession?.metadata);
 
       const fileStream = fsSync.createReadStream(filePath);
       const rl = readline.createInterface({
@@ -2713,6 +2605,11 @@ async function buildGeminiSessionsIndex() {
 
         try {
           const entry = JSON.parse(line);
+          const metadataMode = readExplicitSessionModeFromMetadata(entry.payload || entry);
+          if (metadataMode) {
+            detectedSessionMode = metadataMode;
+          }
+
           const sessionCwd = entry.cwd || entry.payload?.cwd;
           if (sessionCwd) {
             const normalizedSessionCwd = await normalizeComparablePath(sessionCwd);
@@ -2741,8 +2638,16 @@ async function buildGeminiSessionsIndex() {
                 : '';
 
             if (textContent.trim()) {
-              const cleaned = stripInternalContextPrefix(textContent.trim());
-              if (!cleaned.includes('Base directory for this skill:') && !cleaned.startsWith('<command-name>')) {
+              const modeFromContext = extractSessionModeFromText(textContent);
+              if (modeFromContext) {
+                detectedSessionMode = modeFromContext;
+              }
+
+              const cleaned = stripInternalContextPrefix(textContent.trim(), false);
+              if (cleaned && !cleaned.includes('Base directory for this skill:') && !cleaned.startsWith('<command-name>')) {
+                if (!detectedSessionMode) {
+                  detectedSessionMode = inferSessionModeFromUserMessage(cleaned);
+                }
                 const helpMatch = cleaned.match(/Please help me with ["'](.*?)["']/);
                 firstMessageText = helpMatch ? helpMatch[1] : cleaned.split('\n')[0].replace(/#+\s*/, '').trim();
               }
@@ -2774,7 +2679,7 @@ async function buildGeminiSessionsIndex() {
         finalName = 'Untitled Session';
       }
 
-      const sessionMode = extractSessionModeFromMetadata(indexedSession?.metadata);
+      const sessionMode = detectedSessionMode || 'research';
       const resolvedMessageCount = Math.max(indexedMessageCount, messageCount);
       const session = {
         id: sessionId,

@@ -426,19 +426,17 @@ async function syncSessionMetadata(sessionId, projectPath, sessionMode = 'resear
       return;
     } catch (e) {
       // File doesn't exist, create it with metadata
+      const timestamp = new Date().toISOString();
       const initialEntry = {
         type: 'session_meta',
         payload: {
           id: sessionId,
           cwd: projectPath,
-          timestamp: new Date().toISOString(),
-          mode: sessionMode || 'research',
+          timestamp,
           sessionMode: sessionMode || 'research',
         },
         cwd: projectPath, // Compatibility
-        timestamp: new Date().toISOString(),
-        mode: sessionMode || 'research',
-        sessionMode: sessionMode || 'research',
+        timestamp,
       };
       
       await fs.writeFile(sessionFile, JSON.stringify(initialEntry) + '\n', 'utf8');
