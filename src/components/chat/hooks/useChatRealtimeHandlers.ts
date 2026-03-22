@@ -1,6 +1,11 @@
 import { useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import { decodeHtmlEntities, formatUsageLimitText, unescapeWithMathProtection } from '../utils/chatFormatting';
+import {
+  buildAssistantMessages,
+  decodeHtmlEntities,
+  formatUsageLimitText,
+  unescapeWithMathProtection,
+} from '../utils/chatFormatting';
 import { parseAskUserAnswers, mergeAnswersIntoToolInput } from '../utils/messageTransforms';
 import {
   clearSessionTimerStart,
@@ -89,13 +94,26 @@ const appendStreamingChunk = (
   });
 };
 
+// NOTE: unescapeWithMathProtection, formatUsageLimitText, and splitLegacyGeminiThoughtContent
+// are safe no-ops for non-Gemini text, so no provider guard is needed here.
 const finalizeStreamingMessage = (setChatMessages: Dispatch<SetStateAction<ChatMessage[]>>) => {
   setChatMessages((previous) => {
     const updated = [...previous];
     const lastIndex = updated.length - 1;
     const last = updated[lastIndex];
     if (last && last.type === 'assistant' && last.isStreaming) {
-      updated[lastIndex] = { ...last, isStreaming: false };
+      const normalizedContent = unescapeWithMathProtection(formatUsageLimitText(String(last.content || '')));
+      const messages = buildAssistantMessages(normalizedContent, last.timestamp || new Date());
+      updated.splice(
+        lastIndex,
+        1,
+        ...messages.map((msg) => ({
+          ...last,
+          content: msg.content,
+          isStreaming: false,
+          isThinking: msg.isThinking || false,
+        })),
+      );
     }
     return updated;
   });
@@ -195,11 +213,7 @@ export function useChatRealtimeHandlers({
       if (part.type === 'text' && part.text?.trim()) {
         let content = decodeHtmlEntities(part.text);
         content = formatUsageLimitText(content);
-        newMessages.push({
-          type: 'assistant',
-          content,
-          timestamp: new Date(),
-        });
+        newMessages.push(...buildAssistantMessages(content, new Date()));
       }
     });
 
@@ -235,13 +249,10 @@ export function useChatRealtimeHandlers({
   const handleSimpleAssistantMessage = (structuredData: any) => {
     let content = decodeHtmlEntities(structuredData.content);
     content = formatUsageLimitText(content);
+
     setChatMessages((previous) => [
       ...previous,
-      {
-        type: 'assistant',
-        content,
-        timestamp: new Date(),
-      },
+      ...buildAssistantMessages(content, new Date()),
     ]);
   };
 

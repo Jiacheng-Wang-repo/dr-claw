@@ -8,6 +8,7 @@ import { encodeProjectPath, ensureProjectSkillLinks, reconcileGeminiSessionIndex
 import { writeProjectTemplates } from './templates/index.js';
 import { stripInternalContextPrefix } from './utils/sessionFormatting.js';
 import { recordIndexedSession } from './utils/sessionIndex.js';
+import { splitLegacyGeminiThoughtContent } from '../shared/geminiThoughtParser.js';
 
 // Use cross-spawn on Windows for better command execution
 const spawnFunction = process.platform === 'win32' ? crossSpawn : spawn;
@@ -145,6 +146,27 @@ function sanitizePersistedGeminiContent(content) {
   }
 
   return content;
+}
+
+// Exported for testing only
+export function normalizePersistedGeminiAssistantEntries(content) {
+  const normalizedContent = typeof content === 'string'
+    ? stripInternalContextPrefix(content, false)
+    : content;
+  const legacySegments = splitLegacyGeminiThoughtContent(normalizedContent);
+
+  if (!legacySegments) {
+    return [{
+      role: 'assistant',
+      content: normalizedContent,
+      type: 'message'
+    }];
+  }
+
+  return legacySegments.map((segment) => segment.isThinking
+    ? { role: 'assistant', type: 'thinking', content: segment.content }
+    : { role: 'assistant', content: segment.content, type: 'message' }
+  );
 }
 
 function summarizeGeminiErrorOutput(rawErrorOutput, fallbackModel) {
@@ -740,6 +762,14 @@ export async function spawnGemini(command, options = {}, ws) {
       }
     };
 
+    const persistAssistantMessageBuffer = async (sid, content) => {
+      if (!content) return;
+      const normalizedEntries = normalizePersistedGeminiAssistantEntries(content);
+      for (const entry of normalizedEntries) {
+        await appendToSessionFile(sid, entry);
+      }
+    };
+
     const processLine = async (line) => {
       if (!line.trim()) return;
       if (policyViolationTriggered) return;
@@ -1062,11 +1092,7 @@ export async function spawnGemini(command, options = {}, ws) {
 
           case 'result':
             if (messageBuffer && (capturedSessionId || sessionId)) {
-              await appendToSessionFile(capturedSessionId || sessionId || initialKey, {
-                role: 'assistant',
-                content: messageBuffer,
-                type: 'message'
-              });
+              await persistAssistantMessageBuffer(capturedSessionId || sessionId || initialKey, messageBuffer);
               messageBuffer = '';
             }
             break;
@@ -1137,11 +1163,7 @@ export async function spawnGemini(command, options = {}, ws) {
     geminiProcess.on('close', async (code) => {
       await processingQueue;
       if (messageBuffer && (capturedSessionId || sessionId || initialKey)) {
-        await appendToSessionFile(capturedSessionId || sessionId || initialKey, {
-          role: 'assistant',
-          content: messageBuffer,
-          type: 'message'
-        });
+        await persistAssistantMessageBuffer(capturedSessionId || sessionId || initialKey, messageBuffer);
         messageBuffer = '';
       }
       const finalSessionId = capturedSessionId || sessionId || initialKey;

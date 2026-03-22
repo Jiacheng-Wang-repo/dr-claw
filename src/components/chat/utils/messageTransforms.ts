@@ -1,5 +1,9 @@
 import type { ChatMessage } from '../types/types';
-import { decodeHtmlEntities, unescapeWithMathProtection } from './chatFormatting';
+import {
+  buildAssistantMessages,
+  decodeHtmlEntities,
+  unescapeWithMathProtection,
+} from './chatFormatting';
 import { stripInternalContextPrefix } from '../../../utils/sessionFormatting';
 
 export interface DiffLine {
@@ -626,11 +630,8 @@ export const convertSessionMessages = (rawMessages: any[]): ChatMessage[] => {
             if (typeof text === 'string') {
               text = unescapeWithMathProtection(text);
             }
-            converted.push({
-              type: 'assistant',
-              content: text,
-              timestamp: message.timestamp || new Date().toISOString(),
-            });
+            const ts = message.timestamp || new Date().toISOString();
+            converted.push(...buildAssistantMessages(typeof text === 'string' ? text : String(text), ts));
             return;
           }
 
@@ -697,11 +698,9 @@ export const convertSessionMessages = (rawMessages: any[]): ChatMessage[] => {
       }
 
       if (typeof content === 'string') {
-        converted.push({
-          type: 'assistant',
-          content: unescapeWithMathProtection(content),
-          timestamp: message.timestamp || new Date().toISOString(),
-        });
+        const normalizedContent = unescapeWithMathProtection(content);
+        const ts = message.timestamp || new Date().toISOString();
+        converted.push(...buildAssistantMessages(normalizedContent, ts));
       }
     }
   });
