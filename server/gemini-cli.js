@@ -73,10 +73,6 @@ const GEMINI_PLAN_BLOCKED_TOOLS = new Set([
   'Edit'
 ]);
 
-function encodeProjectPath(projectPath) {
-  return path.resolve(projectPath).replace(/[\\/:\s~_]/g, '-');
-}
-
 async function persistGeminiSessionMetadata(sessionId, projectPath, sessionMode) {
   if (!sessionId || !projectPath) return;
 
