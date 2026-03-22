@@ -128,7 +128,8 @@ function sanitizePersistedGeminiContent(content) {
   return content;
 }
 
-function splitLegacyGeminiThoughtContent(text) {
+// Exported for testing only
+export function splitLegacyGeminiThoughtContent(text) {
   if (typeof text !== 'string' || !/\[Thought:\s*true\]/i.test(text)) {
     return null;
   }
@@ -142,10 +143,14 @@ function splitLegacyGeminiThoughtContent(text) {
     return null;
   }
 
-  return segments;
+  return segments.map((segment, index) => ({
+    content: segment,
+    isThinking: index < segments.length - 1,
+  }));
 }
 
-function normalizePersistedGeminiAssistantEntries(content) {
+// Exported for testing only
+export function normalizePersistedGeminiAssistantEntries(content) {
   const normalizedContent = typeof content === 'string'
     ? stripInternalContextPrefix(content, false)
     : content;
@@ -159,18 +164,10 @@ function normalizePersistedGeminiAssistantEntries(content) {
     }];
   }
 
-  const entries = legacySegments.slice(0, -1).map((segment) => ({
-    type: 'thinking',
-    content: segment
-  }));
-
-  entries.push({
-    role: 'assistant',
-    content: legacySegments[legacySegments.length - 1],
-    type: 'message'
-  });
-
-  return entries;
+  return legacySegments.map((segment) => segment.isThinking
+    ? { type: 'thinking', content: segment.content }
+    : { role: 'assistant', content: segment.content, type: 'message' }
+  );
 }
 
 function summarizeGeminiErrorOutput(rawErrorOutput, fallbackModel) {

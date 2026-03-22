@@ -1,7 +1,7 @@
 import type { ChatMessage } from '../types/types';
 import {
+  buildAssistantMessages,
   decodeHtmlEntities,
-  splitLegacyGeminiThoughtContent,
   unescapeWithMathProtection,
 } from './chatFormatting';
 import { stripInternalContextPrefix } from '../../../utils/sessionFormatting';
@@ -628,25 +628,8 @@ export const convertSessionMessages = (rawMessages: any[]): ChatMessage[] => {
             if (typeof text === 'string') {
               text = unescapeWithMathProtection(text);
             }
-            const legacySegments = typeof text === 'string'
-              ? splitLegacyGeminiThoughtContent(text)
-              : null;
-            if (legacySegments) {
-              legacySegments.forEach((segment) => {
-                converted.push({
-                  type: 'assistant',
-                  content: segment.content,
-                  timestamp: message.timestamp || new Date().toISOString(),
-                  ...(segment.isThinking ? { isThinking: true } : {}),
-                });
-              });
-            } else {
-              converted.push({
-                type: 'assistant',
-                content: text,
-                timestamp: message.timestamp || new Date().toISOString(),
-              });
-            }
+            const ts = message.timestamp || new Date().toISOString();
+            converted.push(...buildAssistantMessages(typeof text === 'string' ? text : String(text), ts));
             return;
           }
 
@@ -714,23 +697,8 @@ export const convertSessionMessages = (rawMessages: any[]): ChatMessage[] => {
 
       if (typeof content === 'string') {
         const normalizedContent = unescapeWithMathProtection(content);
-        const legacySegments = splitLegacyGeminiThoughtContent(normalizedContent);
-        if (legacySegments) {
-          legacySegments.forEach((segment) => {
-            converted.push({
-              type: 'assistant',
-              content: segment.content,
-              timestamp: message.timestamp || new Date().toISOString(),
-              ...(segment.isThinking ? { isThinking: true } : {}),
-            });
-          });
-        } else {
-          converted.push({
-            type: 'assistant',
-            content: normalizedContent,
-            timestamp: message.timestamp || new Date().toISOString(),
-          });
-        }
+        const ts = message.timestamp || new Date().toISOString();
+        converted.push(...buildAssistantMessages(normalizedContent, ts));
       }
     }
   });

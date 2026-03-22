@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import {
+  buildAssistantMessages,
   decodeHtmlEntities,
   formatUsageLimitText,
-  splitLegacyGeminiThoughtContent,
   unescapeWithMathProtection,
 } from '../utils/chatFormatting';
 import { parseAskUserAnswers, mergeAnswersIntoToolInput } from '../utils/messageTransforms';
@@ -92,6 +92,8 @@ const appendStreamingChunk = (
   });
 };
 
+// NOTE: unescapeWithMathProtection, formatUsageLimitText, and splitLegacyGeminiThoughtContent
+// are safe no-ops for non-Gemini text, so no provider guard is needed here.
 const finalizeStreamingMessage = (setChatMessages: Dispatch<SetStateAction<ChatMessage[]>>) => {
   setChatMessages((previous) => {
     const updated = [...previous];
@@ -99,21 +101,17 @@ const finalizeStreamingMessage = (setChatMessages: Dispatch<SetStateAction<ChatM
     const last = updated[lastIndex];
     if (last && last.type === 'assistant' && last.isStreaming) {
       const normalizedContent = unescapeWithMathProtection(formatUsageLimitText(String(last.content || '')));
-      const legacySegments = splitLegacyGeminiThoughtContent(normalizedContent);
-      if (legacySegments) {
-        updated.splice(
-          lastIndex,
-          1,
-          ...legacySegments.map((segment) => ({
-            ...last,
-            content: segment.content,
-            isStreaming: false,
-            ...(segment.isThinking ? { isThinking: true } : { isThinking: false }),
-          })),
-        );
-      } else {
-        updated[lastIndex] = { ...last, content: normalizedContent, isStreaming: false };
-      }
+      const messages = buildAssistantMessages(normalizedContent, last.timestamp || new Date());
+      updated.splice(
+        lastIndex,
+        1,
+        ...messages.map((msg) => ({
+          ...last,
+          content: msg.content,
+          isStreaming: false,
+          isThinking: msg.isThinking || false,
+        })),
+      );
     }
     return updated;
   });
@@ -213,23 +211,7 @@ export function useChatRealtimeHandlers({
         let content = decodeHtmlEntities(part.text);
         content = formatUsageLimitText(content);
         content = unescapeWithMathProtection(content);
-        const legacySegments = splitLegacyGeminiThoughtContent(content);
-        if (legacySegments) {
-          newMessages.push(
-            ...legacySegments.map((segment) => ({
-              type: 'assistant',
-              content: segment.content,
-              timestamp: new Date(),
-              ...(segment.isThinking ? { isThinking: true } : {}),
-            })),
-          );
-        } else {
-          newMessages.push({
-            type: 'assistant',
-            content,
-            timestamp: new Date(),
-          });
-        }
+        newMessages.push(...buildAssistantMessages(content, new Date()));
       }
     });
 
@@ -266,24 +248,10 @@ export function useChatRealtimeHandlers({
     let content = decodeHtmlEntities(structuredData.content);
     content = formatUsageLimitText(content);
     content = unescapeWithMathProtection(content);
-    const legacySegments = splitLegacyGeminiThoughtContent(content);
 
     setChatMessages((previous) => [
       ...previous,
-      ...(legacySegments
-        ? legacySegments.map((segment) => ({
-            type: 'assistant',
-            content: segment.content,
-            timestamp: new Date(),
-            ...(segment.isThinking ? { isThinking: true } : {}),
-          }))
-        : [
-            {
-              type: 'assistant',
-              content,
-              timestamp: new Date(),
-            },
-          ]),
+      ...buildAssistantMessages(content, new Date()),
     ]);
   };
 
