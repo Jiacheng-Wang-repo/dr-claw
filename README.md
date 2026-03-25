@@ -159,6 +159,10 @@ Open your browser at `http://localhost:5173` (or the port you configured in `.en
 
 #### Option B: Terminal Only
 
+<p align="center">
+  <img src="public/screenshots/terminal_example.png" alt="Terminal workflow example" width="400">
+</p>
+
 Open a **second terminal** (keep `npm run dev` running in the first) and install the `drclaw` CLI harness:
 
 ```bash
@@ -192,9 +196,6 @@ Skills from `dr-claw/skills/` are automatically symlinked into each project's `.
 > Read .claude/skills/inno-experiment-analysis/SKILL.md and follow it to analyze my results.
 ```
 
-<p align="center">
-  <img src="public/screenshots/terminal_example.png" alt="Terminal workflow example" width="600">
-</p>
 
 
 If agent web search does not work later, see [Troubleshooting Web Search](#step-4--troubleshooting-web-search) below.
