@@ -171,13 +171,19 @@ Then log in with the credentials you created during setup:
 drclaw auth login --username YOUR_USERNAME --password YOUR_PASSWORD
 ```
 
-Navigate to the project directory you want to work in and launch your agent (e.g., Claude Code):
+Install at least one agent CLI (if you haven't already):
+
+| Agent | Install | Auth |
+|-------|---------|------|
+| Claude Code | `npm install -g @anthropic-ai/claude-code` | `claude` → follow OAuth prompt |
+| Gemini CLI | `npm install -g @google/gemini-cli` | `gemini` → Google sign-in, or `export GOOGLE_API_KEY=...` |
+| Codex CLI | `npm install -g @openai/codex` | `codex login`, or `export OPENAI_API_KEY=...` |
+
+Navigate to the project directory you want to work in and launch any of the agents:
 
 ```bash
 cd /path/to/your/project
-
-### can use gemini, claude, or codex once you are logged in
-claude
+claude    # or: gemini | codex
 ```
 
 Skills from `dr-claw/skills/` are automatically symlinked into each project's `.claude/skills/` directory when the project is created, so the agent discovers them without extra configuration. You can also reference any skill manually inside a session:
