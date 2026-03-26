@@ -19,7 +19,7 @@ const CATEGORIES: SkillCategory[] = [
   { key: 'pipeline', icon: '🗺️', skills: ['inno-pipeline-planner'] },
   { key: 'experiment', icon: '🧪', skills: ['inno-experiment-dev', 'inno-experiment-analysis', 'bioinformatics-init-analysis', 'inno-prepare-resources'] },
   { key: 'paperWriting', icon: '✏️', skills: ['inno-paper-writing', 'scientific-writing', 'ml-paper-writing', 'inno-figure-gen', 'inno-humanizer'] },
-  { key: 'paperReview', icon: '📋', skills: ['inno-paper-reviewer', 'inno-reference-audit', 'inno-rclone-to-overleaf'] },
+  { key: 'paperReview', icon: '📋', skills: ['inno-paper-reviewer', 'inno-rebuttal', 'inno-reference-audit', 'inno-rclone-to-overleaf'] },
   { key: 'grantWriting', icon: '📝', skills: ['inno-grant-proposal'] },
   { key: 'promotion', icon: '🎬', skills: ['making-academic-presentations'] },
 ];
@@ -33,8 +33,14 @@ export default function SkillShortcutsPanel({
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
 
   const inject = (prompt: string) => {
-    setInput(prompt);
-    setTimeout(() => textareaRef.current?.focus(), 100);
+    setInput(prev => prev ? `${prompt}\n\n${prev}` : prompt);
+    setTimeout(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      const cursor = el.value.length;
+      el.setSelectionRange(cursor, cursor);
+    }, 100);
   };
 
   const handleSkillClick = (skill: string) => {

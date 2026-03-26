@@ -672,7 +672,7 @@ async function saveProjectConfig(config) {
 }
 
 export function encodeProjectPath(projectPath) {
-  return path.resolve(projectPath).replace(/[\\/:\s~_]/g, '-');
+  return path.resolve(projectPath).replace(/[\\/:\s~_.]/g, '-');
 }
 
 // Generate better display name from path
@@ -1881,17 +1881,33 @@ async function renameProject(projectName, newDisplayName, userId = null) {
 
 // Delete a session from a project
 async function deleteSession(projectName, sessionId, provider = 'claude') {
+  const { sessionDb } = await import('./database/db.js');
+  const indexedSession = sessionDb.getSessionById(sessionId);
+
   if (provider === 'gemini') {
     const geminiSessionFile = path.join(os.homedir(), '.gemini', 'sessions', `${sessionId}.jsonl`);
+    let deletedFile = false;
     try {
-      await fs.access(geminiSessionFile);
       await fs.unlink(geminiSessionFile);
-      console.log(`[Gemini] Deleted session file: ${geminiSessionFile}`);
-      return true;
+      deletedFile = true;
     } catch (e) {
-      console.error(`[Gemini] Failed to delete session ${sessionId}:`, e.message);
-      throw new Error(`Failed to delete Gemini session: ${e.message}`);
+      if (e?.code !== 'ENOENT') {
+        console.error(`[Gemini] Failed to delete session ${sessionId}:`, e.message);
+        throw new Error(`Failed to delete Gemini session: ${e.message}`);
+      }
     }
+
+    const deletedIndex = indexedSession?.provider === 'gemini' || deletedFile;
+    if (deletedIndex) {
+      sessionDb.deleteSession(sessionId);
+    }
+
+    if (deletedFile || deletedIndex) {
+      console.log(`[Gemini] Deleted session ${sessionId}${deletedFile ? ` file: ${geminiSessionFile}` : ' from index only'}`);
+      return true;
+    }
+
+    throw new Error(`Gemini session ${sessionId} not found in file system or index`);
   }
 
   const projectDir = path.join(os.homedir(), '.claude', 'projects', projectName);
@@ -1900,45 +1916,59 @@ async function deleteSession(projectName, sessionId, provider = 'claude') {
     const files = await fs.readdir(projectDir);
     const jsonlFiles = files.filter(file => file.endsWith('.jsonl'));
 
-    if (jsonlFiles.length === 0) {
-      throw new Error('No session files found for this project');
-    }
+    let matchedFiles = 0;
+    let removedEntries = 0;
 
-    // Check all JSONL files to find which one contains the session
     for (const file of jsonlFiles) {
       const jsonlFile = path.join(projectDir, file);
       const content = await fs.readFile(jsonlFile, 'utf8');
       const lines = content.split('\n').filter(line => line.trim());
+      let fileRemovedEntries = 0;
 
-      // Check if this file contains the session
-      const hasSession = lines.some(line => {
+      const filteredLines = lines.filter(line => {
         try {
           const data = JSON.parse(line);
-          return data.sessionId === sessionId;
+          if (data.sessionId === sessionId) {
+            fileRemovedEntries += 1;
+            return false;
+          }
+          return true;
         } catch {
-          return false;
+          return true; // Keep malformed lines
         }
       });
 
-      if (hasSession) {
-        // Filter out all entries for this session
-        const filteredLines = lines.filter(line => {
-          try {
-            const data = JSON.parse(line);
-            return data.sessionId !== sessionId;
-          } catch {
-            return true; // Keep malformed lines
-          }
-        });
+      if (fileRemovedEntries > 0) {
+        matchedFiles += 1;
+        removedEntries += fileRemovedEntries;
 
-        // Write back the filtered content
-        await fs.writeFile(jsonlFile, filteredLines.join('\n') + (filteredLines.length > 0 ? '\n' : ''));
-        return true;
+        if (filteredLines.length > 0) {
+          await fs.writeFile(jsonlFile, filteredLines.join('\n') + '\n');
+        } else {
+          await fs.unlink(jsonlFile);
+        }
       }
     }
 
-    throw new Error(`Session ${sessionId} not found in any files`);
+    const deletedIndex = indexedSession?.provider === 'claude' || matchedFiles > 0;
+    if (deletedIndex) {
+      sessionDb.deleteSession(sessionId);
+    }
+
+    if (matchedFiles > 0 || deletedIndex) {
+      console.log(
+        `[Claude] Deleted session ${sessionId} from ${matchedFiles} file(s), removed ${removedEntries} entr${removedEntries === 1 ? 'y' : 'ies'}`,
+      );
+      return true;
+    }
+
+    throw new Error(`Session ${sessionId} not found in any files or index`);
   } catch (error) {
+    if (error?.code === 'ENOENT' && indexedSession?.provider === 'claude') {
+      sessionDb.deleteSession(sessionId);
+      console.log(`[Claude] Deleted session ${sessionId} from index only; project directory missing: ${projectDir}`);
+      return true;
+    }
     console.error(`Error deleting session ${sessionId} from project ${projectName}:`, error);
     throw error;
   }
@@ -2503,7 +2533,27 @@ async function addProjectManually(projectPath, displayName = null, userId = null
     throw new Error(`Path does not exist: ${absolutePath}`);
   }
 
-  const projectName = absolutePath.replace(/[\\/:\s~_]/g, '-');
+  const projectName = encodeProjectPath(absolutePath);
+
+  // Check for existing project with the same path (may have legacy encoded ID)
+  const existingByPath = projectDb.getProjectByPath(absolutePath, userId);
+  if (existingByPath) {
+    if (existingByPath.id !== projectName) {
+      // Legacy ID detected — migrate to new encoding
+      projectDb.migrateProjectIdentity(existingByPath.id, projectName, absolutePath);
+    }
+    return {
+      name: projectName,
+      path: absolutePath,
+      fullPath: absolutePath,
+      displayName: displayName || existingByPath.display_name || await generateDisplayName(projectName, absolutePath),
+      isManuallyAdded: Boolean(existingByPath.metadata?.manuallyAdded),
+      createdAt: existingByPath.created_at,
+      sessions: [],
+      cursorSessions: [],
+      alreadyExists: true,
+    };
+  }
 
   projectDb.upsertProject(projectName, userId, displayName, absolutePath, 0, new Date().toISOString(), { manuallyAdded: true });
 
@@ -3380,7 +3430,9 @@ async function getCodexSessionMessages(sessionId, limit = null, offset = 0) {
 
 async function deleteCodexSession(sessionId) {
   try {
+    const { sessionDb } = await import('./database/db.js');
     const codexSessionsDir = path.join(os.homedir(), '.codex', 'sessions');
+    const indexedSession = sessionDb.getSessionById(sessionId);
 
     const findJsonlFiles = async (dir) => {
       const files = [];
@@ -3399,13 +3451,26 @@ async function deleteCodexSession(sessionId) {
     };
 
     const jsonlFiles = await findJsonlFiles(codexSessionsDir);
+    let deletedFile = false;
 
     for (const filePath of jsonlFiles) {
       const sessionData = await parseCodexSessionFile(filePath);
       if (sessionData && sessionData.id === sessionId) {
         await fs.unlink(filePath);
-        return true;
+        deletedFile = true;
+        break;
       }
+    }
+
+    const deletedIndex =
+      indexedSession?.provider === 'codex' || deletedFile;
+
+    if (deletedIndex) {
+      sessionDb.deleteSession(sessionId);
+    }
+
+    if (deletedFile || deletedIndex) {
+      return true;
     }
 
     throw new Error(`Codex session file not found for session ${sessionId}`);

@@ -244,6 +244,7 @@ function MainContent({
                 clearPendingAutoIntake={clearPendingAutoIntake}
                 importedProjectAnalysisPrompt={importedProjectAnalysisPrompt}
                 clearImportedProjectAnalysisPrompt={clearImportedProjectAnalysisPrompt}
+                onOpenShellForSession={() => setActiveTab('shell')}
                 newSessionMode={newSessionMode}
                 onNewSessionModeChange={onNewSessionModeChange}
               />
@@ -262,12 +263,12 @@ function MainContent({
 
           {activeTab === 'shell' && (
             <div className="h-full w-full overflow-hidden">
-              <ShellWorkspace project={selectedProject} />
+              <ShellWorkspace project={selectedProject} session={selectedSession} />
             </div>
           )}
 
           {activeTab === 'git' && (
-            <div className="h-full overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-hidden">
               <AnyGitPanel selectedProject={selectedProject} isMobile={isMobile} onFileOpen={handleFileOpen} />
             </div>
           )}

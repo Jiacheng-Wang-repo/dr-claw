@@ -1,5 +1,5 @@
 import React, { memo, useMemo } from 'react';
-import { User } from 'lucide-react';
+import { FileImage, FileText, User } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import SessionProviderLogo from '../../../SessionProviderLogo';
 import type {
@@ -28,6 +28,8 @@ interface MessageComponentProps {
   onFileOpen?: (filePath: string, diffInfo?: unknown) => void;
   onShowSettings?: () => void;
   onGrantToolPermission?: (suggestion: PermissionSuggestion) => PermissionGrantResult | null | undefined;
+  canSuggestShellEdit?: boolean;
+  onSuggestShellEdit?: () => void;
   autoExpandTools?: boolean;
   showRawParameters?: boolean;
   showThinking?: boolean;
@@ -63,7 +65,7 @@ function extractSkillContentTitle(content: string, fallback: string): string {
   return fallback;
 }
 
-const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFileOpen, onShowSettings, onGrantToolPermission, autoExpandTools, showRawParameters, showThinking, hideThinkingFold, selectedProject, provider }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFileOpen, onShowSettings, onGrantToolPermission, canSuggestShellEdit, onSuggestShellEdit, autoExpandTools, showRawParameters, showThinking, hideThinkingFold, selectedProject, provider }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
                    ((prevMessage.type === 'assistant') ||
@@ -114,6 +116,8 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
     return null;
   }
 
+  const visibleAttachments = Array.isArray(message.attachments) ? message.attachments : [];
+
   return (
     <div
       ref={messageRef}
@@ -163,6 +167,18 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
               </div>
             )}
           </div>
+          {canSuggestShellEdit && onSuggestShellEdit && (
+            <div className="mb-1.5 mr-1">
+              <button
+                type="button"
+                onClick={onSuggestShellEdit}
+                className="text-[11px] font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+                title={t('shell.historyEdit.action')}
+              >
+                {t('shell.historyEdit.action')}
+              </button>
+            </div>
+          )}
           <div className="bg-blue-600 text-white rounded-2xl rounded-tr-none px-4 py-2.5 shadow-sm max-w-[90%] sm:max-w-[85%]">
             <div className="text-[15px] whitespace-pre-wrap break-words leading-relaxed">
               {message.content}
@@ -188,6 +204,36 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                       </svg>
                       <span className="text-sm truncate">{img.name || 'file'}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {visibleAttachments.length > 0 && (
+              <div className="mt-2 flex flex-col gap-2">
+                {visibleAttachments.map((attachment, idx) => {
+                  const Icon = attachment.kind === 'image' ? FileImage : FileText;
+                  const attachmentDescription =
+                    attachment.kind === 'pdf'
+                      ? 'PDF uploaded to workspace'
+                      : attachment.kind === 'image'
+                      ? 'Image uploaded to workspace'
+                      : 'File uploaded to workspace';
+                  return (
+                    <div
+                      key={`${attachment.name}:${attachment.path || idx}`}
+                      className="flex items-start gap-2 rounded-lg bg-white/10 px-3 py-2"
+                    >
+                      <Icon className="mt-0.5 h-4 w-4 flex-shrink-0 opacity-80" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">{attachment.name}</div>
+                        <div className="text-xs opacity-75">{attachmentDescription}</div>
+                        {attachment.path && (
+                          <div className="mt-1 break-all font-mono text-[11px] opacity-70">
+                            {attachment.path}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
