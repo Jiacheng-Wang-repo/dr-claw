@@ -58,8 +58,9 @@ router.get('/claude/status', async (req, res) => {
       }, 'claude'));
     }
 
-    // Check for Custom API env var
-    if (process.env.ANTHROPIC_AUTH_TOKEN) {
+    // Check for Custom API env var (ANTHROPIC_API_KEY is the correct var for the SDK;
+    // also check legacy ANTHROPIC_AUTH_TOKEN for backward compatibility)
+    if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {
       return res.json(buildStatusPayload({
         authenticated: true,
         email: 'Custom API Connected',
@@ -690,17 +691,23 @@ router.post('/claude/verify-custom-api', async (req, res) => {
 
       const keysToUpdate = {
         'ANTHROPIC_BASE_URL': baseUrl || 'https://api.anthropic.com',
-        'ANTHROPIC_AUTH_TOKEN': token,
+        'ANTHROPIC_API_KEY': token,
         'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS': '1'
       };
+
+      const keysToRemove = new Set(['ANTHROPIC_AUTH_TOKEN']);
 
       const newLines = [];
       const existingKeys = new Set();
       envContent.split('\n').forEach(line => {
         const [key] = line.split('=');
-        if (keysToUpdate[key.trim()]) {
-          newLines.push(`${key.trim()}=${keysToUpdate[key.trim()]}`);
-          existingKeys.add(key.trim());
+        const trimmedKey = key.trim();
+        if (keysToRemove.has(trimmedKey)) {
+          return;
+        }
+        if (keysToUpdate[trimmedKey]) {
+          newLines.push(`${trimmedKey}=${keysToUpdate[trimmedKey]}`);
+          existingKeys.add(trimmedKey);
         } else if (line.trim()) {
           newLines.push(line);
         }
@@ -717,6 +724,7 @@ router.post('/claude/verify-custom-api', async (req, res) => {
       Object.entries(keysToUpdate).forEach(([key, val]) => {
         process.env[key] = val;
       });
+      delete process.env.ANTHROPIC_AUTH_TOKEN;
 
       return res.json({ success: true, message: 'Custom API verified and applied.' });
     } else {
