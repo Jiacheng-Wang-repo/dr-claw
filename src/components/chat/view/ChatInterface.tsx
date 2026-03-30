@@ -199,6 +199,8 @@ function ChatInterface({
     isTextareaExpanded,
     thinkingMode,
     setThinkingMode,
+    codexReasoningEffort,
+    setCodexReasoningEffort,
     slashCommandsCount,
     filteredCommands,
     frequentCommands,
@@ -800,8 +802,11 @@ function ChatInterface({
           provider={provider}
           permissionMode={permissionMode}
           onModeSwitch={cyclePermissionMode}
+          codexModel={codexModel}
           thinkingMode={thinkingMode}
           setThinkingMode={setThinkingMode}
+          codexReasoningEffort={codexReasoningEffort}
+          setCodexReasoningEffort={setCodexReasoningEffort}
           tokenBudget={tokenBudget}
           slashCommandsCount={slashCommandsCount}
           onToggleCommandMenu={handleToggleCommandMenu}

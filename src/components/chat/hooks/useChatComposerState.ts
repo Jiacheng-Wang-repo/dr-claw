@@ -16,6 +16,8 @@ import { authenticatedFetch } from '../../../utils/api';
 import { isTelemetryEnabled } from '../../../utils/telemetry';
 
 import { thinkingModes } from '../constants/thinkingModes';
+import type { CodexReasoningEffortId } from '../constants/codexReasoningEfforts';
+import { getSupportedCodexReasoningEfforts } from '../constants/codexReasoningSupport';
 
 import { grantToolPermission } from '../utils/chatPermissions';
 import { getProviderSettingsKey, persistSessionTimerStart, safeLocalStorage } from '../utils/chatStorage';
@@ -229,6 +231,20 @@ export function useChatComposerState({
   const [fileErrors, setFileErrors] = useState<Map<string, string>>(new Map());
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
   const [thinkingMode, setThinkingMode] = useState('none');
+  const [codexReasoningEffort, setCodexReasoningEffort] = useState<CodexReasoningEffortId>(() => {
+    const savedValue = safeLocalStorage.getItem('codex-reasoning-effort');
+    switch (savedValue) {
+      case 'minimal':
+      case 'low':
+      case 'medium':
+      case 'high':
+      case 'xhigh':
+      case 'default':
+        return savedValue;
+      default:
+        return 'default';
+    }
+  });
   const [intakeGreeting, setIntakeGreeting] = useState<string | null>(null);
   const [pendingStageTagKeys, setPendingStageTagKeys] = useState<string[]>([]);
   const [attachedPrompt, setAttachedPrompt] = useState<AttachedPrompt | null>(null);
@@ -253,6 +269,17 @@ export function useChatComposerState({
   useEffect(() => {
     setPendingStageTagKeys([]);
   }, [selectedProject?.name, selectedSession?.id]);
+
+  useEffect(() => {
+    safeLocalStorage.setItem('codex-reasoning-effort', codexReasoningEffort);
+  }, [codexReasoningEffort]);
+
+  useEffect(() => {
+    const supportedEfforts = getSupportedCodexReasoningEfforts(codexModel);
+    if (!supportedEfforts.includes(codexReasoningEffort)) {
+      setCodexReasoningEffort('default');
+    }
+  }, [codexModel, codexReasoningEffort]);
 
   const handleBuiltInCommand = useCallback(
     (result: CommandExecutionResult) => {
@@ -1040,6 +1067,7 @@ export function useChatComposerState({
             resume: Boolean(effectiveSessionId),
             model: codexModel,
             permissionMode: permissionMode === 'plan' ? 'default' : permissionMode,
+            modelReasoningEffort: codexReasoningEffort === 'default' ? undefined : codexReasoningEffort,
             attachments: codexAttachmentPayload,
             images: uploadedImages,
             telemetryEnabled,
@@ -1112,6 +1140,7 @@ export function useChatComposerState({
       attachedPrompt,
       claudeModel,
       codexModel,
+      codexReasoningEffort,
       currentSessionId,
       cursorModel,
       executeCommand,
@@ -1517,6 +1546,8 @@ export function useChatComposerState({
     isTextareaExpanded,
     thinkingMode,
     setThinkingMode,
+    codexReasoningEffort,
+    setCodexReasoningEffort,
     slashCommandsCount,
     filteredCommands,
     frequentCommands,

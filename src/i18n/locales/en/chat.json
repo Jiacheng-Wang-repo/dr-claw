@@ -171,6 +171,41 @@
     },
     "buttonTitle": "Thinking mode: {{mode}}"
   },
+  "codexReasoningEffort": {
+    "selector": {
+      "title": "Reasoning Effort",
+      "description": "Control how much deliberate reasoning Codex uses before responding",
+      "active": "Active",
+      "tip": "Higher reasoning effort usually improves hard-task quality, but increases latency"
+    },
+    "levels": {
+      "default": {
+        "name": "Default",
+        "description": "Use the model default reasoning effort"
+      },
+      "minimal": {
+        "name": "Minimal",
+        "description": "Fastest response with minimal deliberate reasoning"
+      },
+      "low": {
+        "name": "Low",
+        "description": "Light reasoning with lower latency"
+      },
+      "medium": {
+        "name": "Medium",
+        "description": "Balanced depth and latency"
+      },
+      "high": {
+        "name": "High",
+        "description": "More deliberate reasoning for harder tasks"
+      },
+      "xhigh": {
+        "name": "Max",
+        "description": "Maximum reasoning effort"
+      }
+    },
+    "buttonTitle": "Reasoning effort: {{level}}"
+  },
   "providerSelection": {
     "title": "Choose Your AI Assistant",
     "description": "Select a provider to start a new conversation",

@@ -20,6 +20,7 @@ import type {
   SetStateAction,
   TouchEvent,
 } from 'react';
+import type { CodexReasoningEffortId } from '../../constants/codexReasoningEfforts';
 import type { AttachedPrompt, PendingPermissionRequest, PermissionMode, Provider, TokenBudget } from '../../types/types';
 
 interface MentionableFile {
@@ -54,8 +55,11 @@ interface ChatComposerProps {
   provider: Provider | string;
   permissionMode: PermissionMode | string;
   onModeSwitch: () => void;
+  codexModel: string;
   thinkingMode: string;
   setThinkingMode: Dispatch<SetStateAction<string>>;
+  codexReasoningEffort: CodexReasoningEffortId;
+  setCodexReasoningEffort: Dispatch<SetStateAction<CodexReasoningEffortId>>;
   tokenBudget: TokenBudget | null;
   slashCommandsCount: number;
   onToggleCommandMenu: () => void;
@@ -116,8 +120,11 @@ export default function ChatComposer({
   provider,
   permissionMode,
   onModeSwitch,
+  codexModel,
   thinkingMode,
   setThinkingMode,
+  codexReasoningEffort,
+  setCodexReasoningEffort,
   tokenBudget,
   slashCommandsCount,
   onToggleCommandMenu,
@@ -208,8 +215,11 @@ export default function ChatComposer({
           permissionMode={permissionMode}
           onModeSwitch={onModeSwitch}
           provider={provider}
+          codexModel={codexModel}
           thinkingMode={thinkingMode}
           setThinkingMode={setThinkingMode}
+          codexReasoningEffort={codexReasoningEffort}
+          setCodexReasoningEffort={setCodexReasoningEffort}
           tokenBudget={tokenBudget}
           slashCommandsCount={slashCommandsCount}
           onToggleCommandMenu={onToggleCommandMenu}
